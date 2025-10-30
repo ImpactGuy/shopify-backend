@@ -116,9 +116,13 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Exact printable text area per spec: 260×54 mm centered in 270×66 mm
-      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
-      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
+      // Margins (5mm sides, 6mm top/bottom)
+      const marginLeft = 5 * MM_TO_PT;
+      const marginTop = 6 * MM_TO_PT;
+
+      // Center text within text area (260×54mm)
+      const textX = marginLeft;
+      const textY = marginTop + (PDF_HEIGHT_PT - TEXT_HEIGHT_PT - marginTop * 2) / 2;
 
       // Try to use Impact font if available
       const fallbackFont = 'Helvetica-Bold';
@@ -138,50 +142,23 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         }
       } catch {}
 
-      // Determine the largest font size that fits width first, then clamp by height
-      const text = config.text.toUpperCase();
-      doc.font(fontToUse).fillColor(config.color || '#000000');
+      // Set font and size
+      const fontSize = Math.max(40, Math.min(700, config.fontSizePt));
 
-      const MIN_PT = 40;
-      const MAX_PT = 700;
-
-      // Fit to width using binary search on widthOfString
-      function widthFits(sizePt: number): boolean {
-        doc.fontSize(sizePt);
-        const width = doc.widthOfString(text);
-        return width <= TEXT_WIDTH_PT;
-      }
-
-      let lo = MIN_PT;
-      let hi = MAX_PT;
-      let bestWidth = MIN_PT;
-      while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        if (widthFits(mid)) {
-          bestWidth = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-
-      // Clamp by height: single line height is roughly ~fontSize (PDF points)
-      const maxByHeight = Math.floor(TEXT_HEIGHT_PT);
-      const targetSize = Math.min(bestWidth, maxByHeight);
-
-      // If frontend provided a smaller manual size, respect it (but never exceed our target)
-      const finalFontSize = Math.min(targetSize, Math.max(MIN_PT, config.fontSizePt || targetSize));
-      doc.fontSize(finalFontSize);
-
-      // Vertical centering using final font size approximation
-      const approxHeight = finalFontSize; // close enough for single uppercase line
-      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - approxHeight) / 2);
-
-      doc.text(text, textAreaX, centeredY, {
-        width: TEXT_WIDTH_PT,
-        align: 'center',
-        lineBreak: false,
-      });
+      doc.font(fontToUse)
+         .fontSize(fontSize)
+         .fillColor(config.color || '#000000')
+         .text(
+           config.text.toUpperCase(),
+           textX,
+           textY,
+           {
+             width: TEXT_WIDTH_PT,
+             height: TEXT_HEIGHT_PT,
+             align: 'center',
+             valign: 'center',
+           }
+         );
 
       doc.end();
     } catch (error) {
