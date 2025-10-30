@@ -116,13 +116,9 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Margins (5mm sides, 6mm top/bottom)
-      const marginLeft = 5 * MM_TO_PT;
-      const marginTop = 6 * MM_TO_PT;
-
-      // Center text within text area (260×54mm)
-      const textX = marginLeft;
-      const textY = marginTop + (PDF_HEIGHT_PT - TEXT_HEIGHT_PT - marginTop * 2) / 2;
+      // Exact 260×54 mm text area centered in 270×66 mm
+      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
+      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
 
       // Load Impact font from known locations; fail if not found to avoid silent fallback
       const fallbackFont = 'Helvetica-Bold';
@@ -188,9 +184,9 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         width: TEXT_WIDTH_PT,
         lineBreak: false,
       });
-      const centeredY = textY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
+      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
 
-      doc.text(text, textX, centeredY, {
+      doc.text(text, textAreaX, centeredY, {
         width: TEXT_WIDTH_PT,
         height: TEXT_HEIGHT_PT,
         align: 'center',
