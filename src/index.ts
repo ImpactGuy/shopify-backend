@@ -124,7 +124,7 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const textX = marginLeft;
       const textY = marginTop + (PDF_HEIGHT_PT - TEXT_HEIGHT_PT - marginTop * 2) / 2;
 
-      // Try to use Impact font if available
+      // Try to use Impact font from env or repo; fallback to Helvetica-Bold
       const fallbackFont = 'Helvetica-Bold';
       let fontToUse = fallbackFont;
       try {
@@ -133,8 +133,11 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         if (envPath && existsSync(envPath)) {
           foundPath = envPath;
         } else {
-          const candidate = join(__dirname, '..', '..', 'Impact', 'Impact.ttf');
-          if (existsSync(candidate)) foundPath = candidate;
+          // Prefer project root path then compiled dir fallback
+          const cwdCandidate = join(process.cwd(), 'Impact', 'Impact.ttf');
+          const dirCandidate = join(__dirname, '..', 'Impact', 'Impact.ttf');
+          if (existsSync(cwdCandidate)) foundPath = cwdCandidate;
+          else if (existsSync(dirCandidate)) foundPath = dirCandidate;
         }
         if (foundPath) {
           doc.registerFont('Impact', readFileSync(foundPath));
@@ -142,23 +145,51 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         }
       } catch {}
 
-      // Set font and size
-      const fontSize = Math.max(40, Math.min(700, config.fontSizePt));
+      // Enforce 260×54 mm fit (single line, uppercase)
+      const text = (config.text || '').toUpperCase();
+      doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      doc.font(fontToUse)
-         .fontSize(fontSize)
-         .fillColor(config.color || '#000000')
-         .text(
-           config.text.toUpperCase(),
-           textX,
-           textY,
-           {
-             width: TEXT_WIDTH_PT,
-             height: TEXT_HEIGHT_PT,
-             align: 'center',
-             valign: 'center',
-           }
-         );
+      const MIN_PT = 40;
+      const MAX_PT = 700;
+
+      // Binary search max size that fits width
+      function fitsWidth(sizePt: number): boolean {
+        doc.fontSize(sizePt);
+        const w = doc.widthOfString(text);
+        return w <= TEXT_WIDTH_PT;
+      }
+
+      let lo = MIN_PT;
+      let hi = MAX_PT;
+      let best = MIN_PT;
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (fitsWidth(mid)) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+
+      // Clamp by height (approximate single-line height ≈ font size in points)
+      const maxByHeight = Math.floor(TEXT_HEIGHT_PT);
+      const targetSize = Math.min(best, maxByHeight);
+      // Respect provided font size if smaller, but never exceed target
+      const requested = Math.max(MIN_PT, Math.min(MAX_PT, Number(config.fontSizePt) || targetSize));
+      const finalSize = Math.min(targetSize, requested);
+      doc.fontSize(finalSize);
+
+      // Vertical center using final size approximation
+      const approxHeight = finalSize;
+      const centeredY = textY + Math.max(0, (TEXT_HEIGHT_PT - approxHeight) / 2);
+
+      doc.text(text, textX, centeredY, {
+        width: TEXT_WIDTH_PT,
+        height: TEXT_HEIGHT_PT,
+        align: 'center',
+        lineBreak: false,
+      });
 
       doc.end();
     } catch (error) {
