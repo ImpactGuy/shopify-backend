@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/**": {
-      "includeFiles": ["fonts/Impact.ttf"]
+      "includeFiles": "fonts/Impact.ttf"
     }
   }
 }
