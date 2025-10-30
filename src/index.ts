@@ -19,6 +19,15 @@ import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { Dropbox } from 'dropbox';
 
+function sanitizePathName(name: string): string {
+  // Remove/replace characters that can cause issues in paths
+  return name
+    .replace(/[\\\/:*?"<>|]/g, '-') // Windows-reserved and common unsafe
+    .replace(/[#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // PDF Dimensions (in millimeters)
 const PDF_WIDTH_MM = 270;
 const PDF_HEIGHT_MM = 66;
@@ -162,7 +171,8 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
  * Handle orders/paid webhook: generate PDFs and upload to Dropbox
  */
 export async function handleOrderPaid(order: any): Promise<{ folderPath: string; files: string[] }> {
-  const orderName: string = order?.name || `Order-${order?.id || 'unknown'}`;
+  const rawOrderName: string = order?.name || `Order-${order?.id || 'unknown'}`;
+  const orderName = sanitizePathName(rawOrderName);
   const createdAt: string = order?.created_at || order?.createdAt || new Date().toISOString();
   const date = createdAt.slice(0, 10); // YYYY-MM-DD
   const root = process.env.DROPBOX_ROOT_PATH || '/Labels';
@@ -183,8 +193,15 @@ export async function handleOrderPaid(order: any): Promise<{ folderPath: string;
     }
   }
 
-  const files = await uploadPDFsToDropbox(folderPath, pdfs);
-  return { folderPath, files };
+  try {
+    const files = await uploadPDFsToDropbox(folderPath, pdfs);
+    return { folderPath, files };
+  } catch (e: any) {
+    // Surface Dropbox errors with more context
+    const message = e?.error?.error_summary || e?.message || 'Dropbox upload failed';
+    console.error('Dropbox upload error:', message);
+    throw new Error(message);
+  }
 }
 
 /** Upload PDFs to Dropbox under folderPath */
@@ -198,7 +215,13 @@ export async function uploadPDFsToDropbox(
   if (!fetchImpl) throw new Error('Global fetch not available. Use Node 18+ or provide a fetch polyfill.');
   const dbx = new Dropbox({ accessToken, fetch: fetchImpl });
 
-  try { await dbx.filesCreateFolderV2({ path: folderPath, autorename: false }); } catch {}
+  try { await dbx.filesCreateFolderV2({ path: folderPath, autorename: false }); } catch (e) {
+    // Ignore if folder exists; log other errors
+    const err: any = e;
+    if (!(err?.error?.error_summary || '').includes('path/conflict/folder/')) {
+      console.warn('Dropbox create folder warning:', err?.error?.error_summary || err?.message || err);
+    }
+  }
 
   const uploaded: string[] = [];
   for (const f of pdfs) {
