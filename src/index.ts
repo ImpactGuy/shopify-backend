@@ -175,9 +175,8 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       // Clamp by height (approximate single-line height ≈ font size in points)
       const maxByHeight = Math.floor(TEXT_HEIGHT_PT);
       const targetSize = Math.min(best, maxByHeight);
-      // Respect provided font size if smaller, but never exceed target
-      const requested = Math.max(MIN_PT, Math.min(MAX_PT, Number(config.fontSizePt) || targetSize));
-      const finalSize = Math.min(targetSize, requested);
+      // Always fill the box to the maximum size that fits
+      const finalSize = targetSize;
       doc.fontSize(finalSize);
 
       // Vertical center using final size approximation
