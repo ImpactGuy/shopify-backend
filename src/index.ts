@@ -116,13 +116,9 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Margins (5mm sides, 6mm top/bottom)
-      const marginLeft = 5 * MM_TO_PT;
-      const marginTop = 6 * MM_TO_PT;
-
-      // Center text within text area (260×54mm)
-      const textX = marginLeft;
-      const textY = marginTop + (PDF_HEIGHT_PT - TEXT_HEIGHT_PT - marginTop * 2) / 2;
+      // Exact printable text area per spec: 260×54 mm centered in 270×66 mm
+      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
+      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
 
       // Try to use Impact font if available
       const fallbackFont = 'Helvetica-Bold';
@@ -144,21 +140,20 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
 
       // Set font and size
       const fontSize = Math.max(40, Math.min(700, config.fontSizePt));
+      const text = config.text.toUpperCase();
 
-      doc.font(fontToUse)
-         .fontSize(fontSize)
-         .fillColor(config.color || '#000000')
-         .text(
-           config.text.toUpperCase(),
-           textX,
-           textY,
-           {
-             width: TEXT_WIDTH_PT,
-             height: TEXT_HEIGHT_PT,
-             align: 'center',
-             valign: 'center',
-           }
-         );
+      doc.font(fontToUse).fontSize(fontSize).fillColor(config.color || '#000000');
+
+      // Vertically center the single line by measuring its height
+      const textMeasureOpts = { width: TEXT_WIDTH_PT, align: 'center', lineBreak: false } as any;
+      const measuredHeight = doc.heightOfString(text, textMeasureOpts);
+      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
+
+      doc.text(text, textAreaX, centeredY, {
+        width: TEXT_WIDTH_PT,
+        align: 'center',
+        lineBreak: false,
+      });
 
       doc.end();
     } catch (error) {
