@@ -149,23 +149,34 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Binary search to find font size that gives exactly 54mm visible height
-      // Font size != visible height, so iterate to find correct size
-      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
+      // Find font size that gives exactly 54mm visible height
+      // Font size != visible height due to font metrics, so iterate to find correct size
+      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.2); // Start estimate
       
       function getActualHeight(sizePt: number): number {
         doc.fontSize(sizePt);
         return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
       }
 
-      // Find font size that gives exactly 54mm visible height
+      // Iterate to find font size that gives exactly 54mm visible height
       let actualHeight = getActualHeight(finalSize);
-      const tolerance = 0.5;
+      const tolerance = 0.3; // Tighter tolerance for better accuracy
       let iterations = 0;
-      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
-        finalSize = (finalSize * TEXT_HEIGHT_PT) / actualHeight;
+      const maxIterations = 20; // More iterations for better convergence
+      
+      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < maxIterations) {
+        const ratio = TEXT_HEIGHT_PT / actualHeight;
+        finalSize = finalSize * ratio;
         actualHeight = getActualHeight(finalSize);
         iterations++;
+      }
+      
+      // Ensure we achieved 54mm height (or very close)
+      if (iterations >= maxIterations) {
+        // Fallback: direct calculation if iteration didn't converge
+        const ratio = TEXT_HEIGHT_PT / actualHeight;
+        finalSize = finalSize * ratio;
+        actualHeight = getActualHeight(finalSize);
       }
 
       // Check if width fits, if not reduce proportionally
