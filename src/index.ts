@@ -138,44 +138,44 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         }
       } catch {}
 
-      // Determine the largest font size that fits within 260×54 mm
+      // Determine the largest font size that fits width first, then clamp by height
       const text = config.text.toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
       const MIN_PT = 40;
       const MAX_PT = 700;
 
-      function fitsAt(sizePt: number): { fits: boolean; measuredHeight: number } {
+      // Fit to width using binary search on widthOfString
+      function widthFits(sizePt: number): boolean {
         doc.fontSize(sizePt);
-        const width = doc.widthOfString(text, { features: [] } as any);
-        const height = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false } as any);
-        const withinWidth = width <= TEXT_WIDTH_PT;
-        const withinHeight = height <= TEXT_HEIGHT_PT;
-        return { fits: withinWidth && withinHeight, measuredHeight: height };
+        const width = doc.widthOfString(text);
+        return width <= TEXT_WIDTH_PT;
       }
 
-      // Binary search for max size
       let lo = MIN_PT;
       let hi = MAX_PT;
-      let best = MIN_PT;
+      let bestWidth = MIN_PT;
       while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
-        const { fits } = fitsAt(mid);
-        if (fits) {
-          best = mid;
+        if (widthFits(mid)) {
+          bestWidth = mid;
           lo = mid + 1;
         } else {
           hi = mid - 1;
         }
       }
 
-      // If frontend provided a size, allow manual downscale but never exceed computed best
-      const finalFontSize = Math.min(best, Math.max(MIN_PT, config.fontSizePt || best));
+      // Clamp by height: single line height is roughly ~fontSize (PDF points)
+      const maxByHeight = Math.floor(TEXT_HEIGHT_PT);
+      const targetSize = Math.min(bestWidth, maxByHeight);
+
+      // If frontend provided a smaller manual size, respect it (but never exceed our target)
+      const finalFontSize = Math.min(targetSize, Math.max(MIN_PT, config.fontSizePt || targetSize));
       doc.fontSize(finalFontSize);
 
-      // Center vertically using measured height at final size
-      const measuredHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false } as any);
-      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
+      // Vertical centering using final font size approximation
+      const approxHeight = finalFontSize; // close enough for single uppercase line
+      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - approxHeight) / 2);
 
       doc.text(text, textAreaX, centeredY, {
         width: TEXT_WIDTH_PT,
