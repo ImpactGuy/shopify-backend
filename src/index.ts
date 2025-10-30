@@ -124,26 +124,30 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const textX = marginLeft;
       const textY = marginTop + (PDF_HEIGHT_PT - TEXT_HEIGHT_PT - marginTop * 2) / 2;
 
-      // Try to use Impact font from env or repo; fallback to Helvetica-Bold
+      // Load Impact font from known locations; fail if not found to avoid silent fallback
       const fallbackFont = 'Helvetica-Bold';
-      let fontToUse = fallbackFont;
+      let fontToUse = 'Impact';
+      let impactPath: string | null = null;
       try {
-        const envPath = process.env.IMPACT_FONT_PATH;
-        let foundPath: string | null = null;
-        if (envPath && existsSync(envPath)) {
-          foundPath = envPath;
-        } else {
-          // Prefer project root path then compiled dir fallback
-          const cwdCandidate = join(process.cwd(), 'Impact', 'Impact.ttf');
-          const dirCandidate = join(__dirname, '..', 'Impact', 'Impact.ttf');
-          if (existsSync(cwdCandidate)) foundPath = cwdCandidate;
-          else if (existsSync(dirCandidate)) foundPath = dirCandidate;
+        const candidatePaths = [
+          process.env.IMPACT_FONT_PATH,
+          join(process.cwd(), 'Impact', 'Impact.ttf'),
+          join(__dirname, '..', 'Impact', 'Impact.ttf'),
+          '/var/task/Impact/Impact.ttf', // common on Vercel
+        ].filter(Boolean) as string[];
+        for (const p of candidatePaths) {
+          if (existsSync(p)) { impactPath = p; break; }
         }
-        if (foundPath) {
-          doc.registerFont('Impact', readFileSync(foundPath));
-          fontToUse = 'Impact';
+        if (!impactPath) {
+          throw new Error('Impact font not found in expected paths');
         }
-      } catch {}
+        // Register by file path to ensure embedding
+        doc.registerFont('Impact', impactPath);
+      } catch (e) {
+        // If Impact fails, use Helvetica-Bold but surface in logs
+        console.warn('Impact font load failed:', (e as any)?.message || e);
+        fontToUse = fallbackFont;
+      }
 
       // Enforce 260×54 mm fit (single line, uppercase)
       const text = (config.text || '').toUpperCase();
