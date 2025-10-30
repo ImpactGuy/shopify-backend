@@ -138,15 +138,43 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         }
       } catch {}
 
-      // Set font and size
-      const fontSize = Math.max(40, Math.min(700, config.fontSizePt));
+      // Determine the largest font size that fits within 260×54 mm
       const text = config.text.toUpperCase();
+      doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      doc.font(fontToUse).fontSize(fontSize).fillColor(config.color || '#000000');
+      const MIN_PT = 40;
+      const MAX_PT = 700;
 
-      // Vertically center the single line by measuring its height
-      const textMeasureOpts = { width: TEXT_WIDTH_PT, align: 'center', lineBreak: false } as any;
-      const measuredHeight = doc.heightOfString(text, textMeasureOpts);
+      function fitsAt(sizePt: number): { fits: boolean; measuredHeight: number } {
+        doc.fontSize(sizePt);
+        const width = doc.widthOfString(text, { features: [] } as any);
+        const height = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false } as any);
+        const withinWidth = width <= TEXT_WIDTH_PT;
+        const withinHeight = height <= TEXT_HEIGHT_PT;
+        return { fits: withinWidth && withinHeight, measuredHeight: height };
+      }
+
+      // Binary search for max size
+      let lo = MIN_PT;
+      let hi = MAX_PT;
+      let best = MIN_PT;
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const { fits } = fitsAt(mid);
+        if (fits) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+
+      // If frontend provided a size, allow manual downscale but never exceed computed best
+      const finalFontSize = Math.min(best, Math.max(MIN_PT, config.fontSizePt || best));
+      doc.fontSize(finalFontSize);
+
+      // Center vertically using measured height at final size
+      const measuredHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false } as any);
       const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
 
       doc.text(text, textAreaX, centeredY, {
