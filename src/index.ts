@@ -149,24 +149,42 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Start with 54mm font size (no extra spacing), then reduce if width doesn't fit
-      const targetHeightPt = Math.floor(TEXT_HEIGHT_PT); // 54mm in points
-      let finalSize = targetHeightPt;
+      // Binary search to find font size that gives exactly 54mm visible height
+      // Font size != visible height, so iterate to find correct size
+      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
+      
+      function getActualHeight(sizePt: number): number {
+        doc.fontSize(sizePt);
+        return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+      }
 
-      // Check if 54mm size fits width, if not reduce proportionally
-      doc.fontSize(targetHeightPt);
-      const widthAt54mm = doc.widthOfString(text);
-      if (widthAt54mm > TEXT_WIDTH_PT) {
-        // Scale down to fit width (maintains aspect ratio)
-        finalSize = (targetHeightPt * TEXT_WIDTH_PT) / widthAt54mm;
+      // Find font size that gives exactly 54mm visible height
+      let actualHeight = getActualHeight(finalSize);
+      const tolerance = 0.5;
+      let iterations = 0;
+      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
+        finalSize = (finalSize * TEXT_HEIGHT_PT) / actualHeight;
+        actualHeight = getActualHeight(finalSize);
+        iterations++;
+      }
+
+      // Check if width fits, if not reduce proportionally
+      doc.fontSize(finalSize);
+      const widthAtSize = doc.widthOfString(text);
+      if (widthAtSize > TEXT_WIDTH_PT) {
+        // Scale down to fit width (this reduces height too)
+        finalSize = (finalSize * TEXT_WIDTH_PT) / widthAtSize;
+        doc.fontSize(finalSize);
+        actualHeight = getActualHeight(finalSize);
       }
       
       // Clamp to reasonable bounds
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
+      actualHeight = getActualHeight(finalSize); // Update height after clamping
 
-      // For vertical centering: font size ≈ visible letter height for Impact uppercase
-      const centeredY = textAreaY + (TEXT_HEIGHT_PT - finalSize) / 2;
+      // Vertical center using measured height
+      const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
       doc.text(text, textAreaX, centeredY, {
         width: TEXT_WIDTH_PT,
