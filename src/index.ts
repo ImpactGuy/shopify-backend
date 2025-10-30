@@ -145,46 +145,28 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         fontToUse = fallbackFont;
       }
 
-      // Enforce 260×54 mm fit (single line, uppercase)
+      // Enforce 260×54 mm: visible letters exactly 54mm tall, no extra spacing
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      const MIN_PT = 40;
-      const MAX_PT = 700;
+      // Start with 54mm font size (no extra spacing), then reduce if width doesn't fit
+      const targetHeightPt = Math.floor(TEXT_HEIGHT_PT); // 54mm in points
+      let finalSize = targetHeightPt;
 
-      // Binary search max size that fits width
-      function fitsWidth(sizePt: number): boolean {
-        doc.fontSize(sizePt);
-        const w = doc.widthOfString(text);
-        return w <= TEXT_WIDTH_PT;
+      // Check if 54mm size fits width, if not reduce proportionally
+      doc.fontSize(targetHeightPt);
+      const widthAt54mm = doc.widthOfString(text);
+      if (widthAt54mm > TEXT_WIDTH_PT) {
+        // Scale down to fit width (maintains aspect ratio)
+        finalSize = (targetHeightPt * TEXT_WIDTH_PT) / widthAt54mm;
       }
-
-      let lo = MIN_PT;
-      let hi = MAX_PT;
-      let best = MIN_PT;
-      while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        if (fitsWidth(mid)) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-
-      // Clamp by height (approximate single-line height ≈ font size in points)
-      const maxByHeight = Math.floor(TEXT_HEIGHT_PT);
-      const targetSize = Math.min(best, maxByHeight);
-      // Always fill the box to the maximum size that fits
-      const finalSize = targetSize;
+      
+      // Clamp to reasonable bounds
+      finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
 
-      // Vertical center using measured height for this font+size and width
-      const measuredHeight = doc.heightOfString(text, {
-        width: TEXT_WIDTH_PT,
-        lineBreak: false,
-      });
-      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
+      // For vertical centering: font size ≈ visible letter height for Impact uppercase
+      const centeredY = textAreaY + (TEXT_HEIGHT_PT - finalSize) / 2;
 
       doc.text(text, textAreaX, centeredY, {
         width: TEXT_WIDTH_PT,
