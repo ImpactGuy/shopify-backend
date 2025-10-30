@@ -1,4 +1,3 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
 import { handleOrderPaid } from '../src/index';
 
@@ -13,21 +12,28 @@ function verifyHmac(rawBody: Buffer, secret: string, hmacHeader?: string | strin
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
-  // Collect raw body for HMAC verification
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    (req as any).on('data', (chunk: Buffer) => chunks.push(chunk));
-    (req as any).on('end', () => resolve());
-    (req as any).on('error', reject);
-  });
-  const rawBody = Buffer.concat(chunks);
+  // Build raw body robustly across environments
+  let rawBody: Buffer | null = null;
+  if (req.body) {
+    if (typeof req.body === 'string') rawBody = Buffer.from(req.body, 'utf8');
+    else if (Buffer.isBuffer(req.body)) rawBody = req.body as Buffer;
+  }
+  if (!rawBody) {
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => resolve());
+      req.on('error', reject);
+    });
+    rawBody = Buffer.concat(chunks);
+  }
 
-  const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
+  const secret = (process.env.SHOPIFY_WEBHOOK_SECRET || '').trim();
   const hmacHeader = req.headers['x-shopify-hmac-sha256'];
   if (!secret || !verifyHmac(rawBody, secret, hmacHeader)) {
     return res.status(401).send('Unauthorized');
@@ -38,7 +44,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const result = await handleOrderPaid(order);
     return res.status(200).json({ ok: true, folderPath: result.folderPath, files: result.files });
   } catch (err: any) {
-    console.error('orders/paid error', err);
     return res.status(500).json({ ok: false, error: err?.message || 'Internal Error' });
   }
 }
