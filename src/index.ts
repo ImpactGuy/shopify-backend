@@ -127,9 +127,9 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       try {
         const candidatePaths = [
           process.env.IMPACT_FONT_PATH,
-          join(process.cwd(), 'Impact', 'Impact.ttf'),
-          join(__dirname, '..', 'Impact', 'Impact.ttf'),
-          '/var/task/Impact/Impact.ttf', // common on Vercel
+          join(process.cwd(), 'fonts', 'Impact.ttf'),
+          join(__dirname, '..', 'fonts', 'Impact.ttf'),
+          '/var/task/fonts/Impact.ttf', // common on Vercel
         ].filter(Boolean) as string[];
         for (const p of candidatePaths) {
           if (existsSync(p)) { impactPath = p; break; }
