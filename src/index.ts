@@ -183,9 +183,12 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const finalSize = targetSize;
       doc.fontSize(finalSize);
 
-      // Vertical center using actual current line height for this font+size
-      const lineHeight = doc.currentLineHeight(true);
-      const centeredY = textY + Math.max(0, (TEXT_HEIGHT_PT - lineHeight) / 2);
+      // Vertical center using measured height for this font+size and width
+      const measuredHeight = doc.heightOfString(text, {
+        width: TEXT_WIDTH_PT,
+        lineBreak: false,
+      });
+      const centeredY = textY + Math.max(0, (TEXT_HEIGHT_PT - measuredHeight) / 2);
 
       doc.text(text, textX, centeredY, {
         width: TEXT_WIDTH_PT,
