@@ -344,7 +344,7 @@ if (require.main === module) {
       const sampleConfig: LabelConfig = {
         text: 'Sample Label',
         fontSizePt: 156,
-        fontFamily: 'Helvetica-Bold',
+        fontFamily:'Impact',
         color: '#000000',
         quantity: 1,
         configId: 'demo',
