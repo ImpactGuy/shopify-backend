@@ -102,6 +102,13 @@ export function extractLabelConfigs(order: any): LabelConfig[] {
 
 /**
  * Generate PDF for a single label configuration
+ * 
+ * Requirements:
+ * - PDF size: 270mm × 66mm (fixed)
+ * - Text area: 260mm × 54mm (centered in PDF)
+ * - Visible letters must fit within 260mm × 54mm
+ * - Text must be centered both horizontally and vertically
+ * 
  * Returns PDF as Buffer
  */
 export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
@@ -154,82 +161,79 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Algorithm: For Impact uppercase, font size in points ≈ visible letter height
-      // Target: 54mm visible height = 153 points
-      // But need to account for actual font metrics, so use calibrated ratio
-      // Calibration from user feedback: need to be more conservative
+      // ========================================
+      // FONT SIZING ALGORITHM (NEW CLEAN APPROACH)
+      // ========================================
+      // Goal: Find font size where:
+      // 1. Text width ≤ 260mm
+      // 2. Visible letter height ≤ 54mm
+      // 3. Both constraints satisfied simultaneously
       
-      function getWidth(sizePt: number): number {
-        doc.fontSize(sizePt);
+      // For Impact uppercase, visible cap height ≈ font size × VISIBLE_HEIGHT_RATIO
+      // Calibrated: 0.73 means 73% of font size is visible cap height
+      const VISIBLE_HEIGHT_RATIO = 0.73;
+      
+      function measureWidth(fontSizePt: number): number {
+        doc.fontSize(fontSizePt);
         return doc.widthOfString(text);
       }
-
-      // Start with font size that targets 54mm visible height
-      // For Impact, visible height ≈ font size × 0.93 (calibrated: 58mm result means need smaller ratio)
-      // To get 54mm: font size = 54mm / 0.93 ≈ 58mm in points = 164pt
-      // But to be safe and ensure ≤ 54mm, use: 54mm / 0.95 = Controls 153pt (more conservative)
-      // Calibration: 0.90 gave 46mm visible, so actual ratio ≈ 0.767
-      // To get 54mm: font_size = 54mm / 0.767 ≈ 199pt
-      const CALIBRATED_RATIO = 0.767;
-      let targetSizeFor54mm = Math.floor(TEXT_HEIGHT_PT / CALIBRATED_RATIO);
-      let finalSize = targetSizeFor54mm;
-
-      // Check width constraint - if it doesn't fit, scale down proportionally
+      
+      function getVisibleHeight(fontSizePt: number): number {
+        return fontSizePt * VISIBLE_HEIGHT_RATIO;
+      }
+      
+      // Start with font size that would give 54mm visible height
+      let optimalSize = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
+      
+      // Iteratively refine to satisfy both width and height constraints
+      for (let i = 0; i < 15; i++) {
+        const testWidth = measureWidth(optimalSize);
+        const testVisibleHeight = getVisibleHeight(optimalSize);
+        
+        // If too wide, scale down based on width
+        if (testWidth > TEXT_WIDTH_PT) {
+          optimalSize = (optimalSize * TEXT_WIDTH_PT) / testWidth;
+        }
+        
+        // If too tall, scale down based on height
+        if (testVisibleHeight > TEXT_HEIGHT_PT) {
+          optimalSize = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
+        }
+        
+        // Clamp to reasonable bounds
+        optimalSize = Math.max(20, Math.min(optimalSize, 800));
+      }
+      
+      // Final measurements
+      const finalSize = optimalSize;
       doc.fontSize(finalSize);
-      let width = getWidth(finalSize);
-      if (width > TEXT_WIDTH_PT) {
-        // Scale down to fit width (this will also reduce height proportionally)
-        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
-        doc.fontSize(finalSize);
-        width = getWidth(finalSize); // Re-measure after scaling
-      }
+      const finalWidth = measureWidth(finalSize);
+      const finalVisibleHeight = getVisibleHeight(finalSize);
       
-      // Final check: ensure visible height doesn't exceed 54mm
-      const estimatedVisibleHeight = finalSize * CALIBRATED_RATIO;
-      if (estimatedVisibleHeight > TEXT_HEIGHT_PT * 1.01) { // 1% tolerance
-        // Clamp to ensure ≤ 54mm
-        finalSize = TEXT_HEIGHT_PT / CALIBRATED_RATIO;
-        doc.fontSize(finalSize);
-        width = getWidth(finalSize); // Re-measure after clamping
-      }
+      // ========================================
+      // POSITIONING ALGORITHM (NEW CLEAN APPROACH)
+      // ========================================
+      // PDFKit's doc.text(x, y) uses Y as BASELINE, not top of text
+      // For Impact uppercase, we need to calculate baseline position correctly
       
-      // Clamp to reasonable bounds
-      finalSize = Math.max(20, Math.min(700, finalSize));
-      doc.fontSize(finalSize);
-      width = getWidth(finalSize); // Final measurement
-      
-      // Final width check - ensure it fits
-      if (width > TEXT_WIDTH_PT) {
-        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
-        doc.fontSize(finalSize);
-        width = getWidth(finalSize);
-      }
-      
-      // Calculate final visible height
-      const finalVisibleHeight = finalSize * CALIBRATED_RATIO;
-      
-      // CRITICAL FIX: doc.text(x, y) uses Y as BASELINE, not top of text!
-      // For Impact uppercase, letters sit on baseline with cap height above
-      // To center 54mm visible letters: calculate baseline position correctly
-      
-      // For Impact uppercase: cap height is mostly above baseline (~85% above, ~15% below)
-      // We want to center the visible cap height (54mm) in the text area
-      const baselineOffsetRatio = 0.15; // Roughly 15% of font size is below baseline for Impact
-      const capHeightAboveBaseline = finalVisibleHeight * (1 - baselineOffsetRatio);
-      
-      // Calculate baseline Y to center visible letters in 54mm box
-      // Top of visible letters should be centered: textAreaY + (TEXT_HEIGHT_PT - finalVisibleHeight) / 2
-      const topOfVisibleLetters = textAreaY + (TEXT_HEIGHT_PT - finalVisibleHeight) / 2;
-      let baselineY = topOfVisibleLetters + capHeightAboveBaseline;
-      
-      // Safety: ensure baseline allows full visible height within bounds
-      const minBaselineY = textAreaY + finalSize * 0.25; // Safe margin from top
-      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - (finalSize * baselineOffsetRatio) - 2; // Safe margin from bottom
-      baselineY = Math.max(minBaselineY, Math.min(baselineY, maxBaselineY));
-      
-      // Horizontal center: use already-measured width (guaranteed to fit in TEXT_WIDTH_PT)
+      // Horizontal centering: center text within 260mm width
       const textAreaCenterX = textAreaX + TEXT_WIDTH_PT / 2;
-      const textStartX = textAreaCenterX - width / 2;
+      const textX = textAreaCenterX - finalWidth / 2;
+      
+      // Vertical centering: center visible letters within 54mm height
+      // For Impact uppercase: ~78% of visible height is above baseline, ~22% below
+      const BASELINE_OFFSET_RATIO = 0.22; // 22% of visible height below baseline
+      const heightAboveBaseline = finalVisibleHeight * (1 - BASELINE_OFFSET_RATIO);
+      
+      // Center visible letters in 54mm box
+      const textAreaCenterY = textAreaY + TEXT_HEIGHT_PT / 2;
+      // Position baseline so visible letters are centered
+      const baselineY = textAreaCenterY - (finalVisibleHeight / 2) + heightAboveBaseline;
+      
+      // Safety bounds: ensure text doesn't go outside text area
+      const minBaselineY = textAreaY + finalVisibleHeight * 0.1;
+      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - finalVisibleHeight * BASELINE_OFFSET_RATIO - 1;
+      const safeBaselineY = Math.max(minBaselineY, Math.min(baselineY, maxBaselineY));
       
       // Ensure we're on the first and only page
       doc.switchToPage(0);
@@ -238,10 +242,12 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const originalAddPage = doc.addPage;
       doc.addPage = function() { return this; };
       
-      // Render text using BASELINE positioning
-      // textStartX: left edge of text (horizontally centered)
-      // baselineY: baseline Y coordinate (where letters sit, vertically centered)
-      doc.text(text, textStartX, baselineY);
+      // ========================================
+      // RENDERING
+      // ========================================
+      // Render text at calculated position
+      // No width/height parameters to prevent clipping or wrapping
+      doc.text(text, textX, safeBaselineY);
 
       // Restore original function
       doc.addPage = originalAddPage;
