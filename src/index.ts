@@ -148,20 +148,23 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           doc.fontSize(orderNumFontSize);
           const actualDigitHeight = doc.heightOfString('0', { width: orderNumFontSize * 2, lineGap: 0 });
           
-          // Calculate for equal margins at top and bottom
-          // Total span between digit centers (from center of bottom digit to center of top digit)
+          // Calculate for perfect vertical centering with equal margins
+          // Total span from center of bottom digit to center of top digit
           const totalSpanBetweenCenters = digitSpacing * (orderDigits.length - 1);
           
-          // Calculate startY (center Y of bottom digit) for equal margins:
-          // Bottom margin = startY - actualDigitHeight/2
-          // Top digit center = startY + totalSpanBetweenCenters
+          // For equal margins at top and bottom:
+          // Bottom margin = distance from PDF bottom to bottom edge of bottom digit
+          // Top margin = distance from PDF top to top edge of top digit
+          // Bottom digit center Y = startY
+          // Top digit center Y = startY + totalSpanBetweenCenters
+          // Bottom margin = startY - actualDigitHeight/2 (distance to bottom edge)
           // Top margin = PDF_HEIGHT_PT - (startY + totalSpanBetweenCenters + actualDigitHeight/2)
-          // Setting equal: startY = (PDF_HEIGHT_PT - totalSpanBetweenCenters) / 2
+          // Setting equal: startY - actualDigitHeight/2 = PDF_HEIGHT_PT - startY - totalSpanBetweenCenters - actualDigitHeight/2
+          // 2*startY = PDF_HEIGHT_PT - totalSpanBetweenCenters
+          // startY = (PDF_HEIGHT_PT - totalSpanBetweenCenters) / 2
           let startY = (PDF_HEIGHT_PT - totalSpanBetweenCenters) / 2;
           
-          // Shift slightly lower (toward bottom) while maintaining equal margins
-          const bottomOffset = 4 * MM_TO_PT; // 4mm offset toward bottom
-          startY = startY - bottomOffset;
+          // No bottom offset - keep it perfectly centered
           
           // Draw each digit from bottom to top, rotated correctly to avoid mirror effect
           // For order "12345678": display as 8(bottom), 7, 6, 5, 4, 3, 2, 1(top)
@@ -173,19 +176,24 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
             // Position from bottom to top: last digit (digitIndex = last) at startY (bottom), increasing upward
             const y = startY + (i * digitSpacing);
             
-            // Save current state, rotate -90 degrees (counterclockwise), adjust text position to avoid mirror effect
+            // Save current state, rotate -90 degrees (counterclockwise), center horizontally and vertically
             doc.save()
                .translate(orderNumCenterX, y)
                .rotate(-90, { origin: [0, 0] }) // Rotate -90 degrees counterclockwise (point left)
                .font('Helvetica-Bold')
                .fontSize(orderNumFontSize)
-               .fillColor('#000000')
-               // Adjust text position after rotation to center correctly
-               .text(digit, -orderNumFontSize / 2, -orderNumFontSize / 2, {
-                 width: orderNumFontSize,
-                 align: 'center',
-               })
-               .restore();
+               .fillColor('#000000');
+               
+            // Calculate actual text dimensions for proper centering
+            const textWidth = doc.widthOfString(digit);
+            const textHeight = doc.heightOfString(digit, { width: textWidth });
+            
+            // Center the text after rotation
+            doc.text(digit, -textWidth / 2, -textHeight / 2, {
+              width: textWidth,
+              align: 'center',
+            })
+            .restore();
           }
         }
       }
