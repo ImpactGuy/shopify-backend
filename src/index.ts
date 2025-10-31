@@ -135,21 +135,25 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         if (orderDigits) {
           // Draw order number vertically, rotated 90 degrees counterclockwise
           // Numbers should be aligned from bottom to top, rotated to the left
-          const orderNumFontSize = 14; // Smaller font size in points for order number
+          const orderNumFontSize = 10; // Even smaller font size in points for order number
           doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor('#000000');
+          
+          // Measure actual text height for tight spacing
+          const testHeight = doc.heightOfString('0', { width: orderNumFontSize * 2 });
           
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
           
-          // Position from bottom to top - no spaces between digits
-          const digitHeight = orderNumFontSize; // No extra spacing, digits touch each other
-          const paddingBottom = 5 * MM_TO_PT; // 5mm padding from bottom
+          // Calculate total height and center vertically in PDF
+          const totalOrderNumHeight = testHeight * orderDigits.length;
+          const verticalCenter = PDF_HEIGHT_PT / 2;
+          const startY = verticalCenter - (totalOrderNumHeight / 2) + (testHeight / 2);
           
           // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
-          // First digit at bottom, last digit at top
+          // First digit at bottom, last digit at top - digits tightly linked
           for (let i = 0; i < orderDigits.length; i++) {
             const digit = orderDigits[i];
-            const y = PDF_HEIGHT_PT - paddingBottom - ((orderDigits.length - 1 - i) * digitHeight);
+            const y = startY + (i * testHeight);
             
             // Save current state, rotate, draw digit, restore
             doc.save()
