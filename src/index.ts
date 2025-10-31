@@ -176,10 +176,12 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
 
       // Check width constraint - if it doesn't fit, scale down proportionally
       doc.fontSize(finalSize);
-      const width = getWidth(finalSize);
+      let width = getWidth(finalSize);
       if (width > TEXT_WIDTH_PT) {
         // Scale down to fit width (this will also reduce height proportionally)
         finalSize = (finalSize * TEXT_WIDTH_PT) / width;
+        doc.fontSize(finalSize);
+        width = getWidth(finalSize); // Re-measure after scaling
       }
       
       // Final check: ensure visible height doesn't exceed 54mm
@@ -187,56 +189,47 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       if (estimatedVisibleHeight > TEXT_HEIGHT_PT * 1.01) { // 1% tolerance
         // Clamp to ensure ≤ 54mm
         finalSize = TEXT_HEIGHT_PT / CALIBRATED_RATIO;
+        doc.fontSize(finalSize);
+        width = getWidth(finalSize); // Re-measure after clamping
       }
       
       // Clamp to reasonable bounds
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
+      width = getWidth(finalSize); // Final measurement
       
-      // Ensure text fits in height - if scaled down for width, recalculate
-      // Visible highly should be ≤ 54mm, so font size × ratio should be ≤ TEXT_HEIGHT_PT
-      const finalVisibleHeight = finalSize * CALIBRATED_RATIO;
-      if (finalVisibleHeight > TEXT_HEIGHT_PT) {
-        // This shouldn't happen, but clamp just in case
-        finalSize = TEXT_HEIGHT_PT / CALIBRATED_RATIO;
+      // Final width check - ensure it fits
+      if (width > TEXT_WIDTH_PT) {
+        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
         doc.fontSize(finalSize);
+        width = getWidth(finalSize);
       }
+      
+      // Calculate final visible height
+      const finalVisibleHeight = finalSize * CALIBRATED_RATIO;
       
       // For single-line uppercase Impact text, use font size directly for vertical positioning
       // Cap height is roughly the visible letter height, which is finalSize × CALIBRATED_RATIO
       const capHeight = finalVisibleHeight;
       
       // Vertical center: place text so cap height is centered in 54mm box
-      // Use font size as baseline approximation for single-line text
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - capHeight) / 2;
-      
-      // Ensure Y is within bounds (never negative or too high)
       const safeY = Math.max(textAreaY, Math.min(centeredY, textAreaY + TEXT_HEIGHT_PT - capHeight));
       
-      // Ensure we're on the first page (and only page)
-      if (doc.page.pageNumber !== 1) {
-        doc.switchToPage(0);
-      }
+      // Horizontal center: use already-measured width (guaranteed to fit in TEXT_WIDTH_PT)
+      const textAreaCenterX = textAreaX + TEXT_WIDTH_PT / 2;
+      const textStartX = textAreaCenterX - width / 2;
       
-      // Disable automatic page creation completely
+      // Ensure we're on the first and only page
+      doc.switchToPage(0);
+      
+      // Disable automatic page creation to prevent multiple pages
       const originalAddPage = doc.addPage;
-      doc.addPage = function() { return this; }; // No-op to prevent page additions
+      doc.addPage = function() { return this; };
       
-      // Calculate exact center position - measure text width and center it manually
-      // This prevents any wrapping or page breaks that could cause multiple sections
-      doc.fontSize(finalSize);
-      const textWidth = doc.widthOfString(text);
-      const centerX = textAreaX + TEXT_WIDTH_PT / 2;
-      const textStartX = centerX - textWidth / 2; // Left edge for centering
-      
-      // Move to exact position and render as single continuous line
-      doc.x = textStartX;
-      doc.y = safeY;
-      
-      // Render text without any width/height constraints to prevent wrapping or page breaks
-      doc.text(text, 0, 0, {
-        lineBreak: false,
-      });
+      // Render text with absolute coordinates - NO width/height/lineBreak parameters
+      // This ensures full text is rendered without any clipping or wrapping
+      doc.text(text, textStartX, safeY);
 
       // Restore original function
       doc.addPage = originalAddPage;
