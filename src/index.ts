@@ -153,10 +153,10 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           
           // Draw each digit from bottom to top, rotated correctly to avoid mirror effect
           // For order "1234": display as 1(bottom), 2, 3, 4(top)
-          // Keep original order: first digit at bottom position
+          // First digit at lowest Y (bottom), last digit at highest Y (top)
           for (let i = 0; i < orderDigits.length; i++) {
-            const digit = orderDigits[i]; // Original order: first digit first
-            // Position from bottom to top with consistent spacing
+            const digit = orderDigits[i]; // Original order: first digit is "1"
+            // Position from bottom to top: first digit (i=0) at startY (bottom), increasing upward
             const y = startY + (i * digitSpacing);
             
             // Save current state, rotate -90 degrees (counterclockwise), adjust text position to avoid mirror effect
