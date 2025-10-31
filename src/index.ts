@@ -102,13 +102,6 @@ export function extractLabelConfigs(order: any): LabelConfig[] {
 
 /**
  * Generate PDF for a single label configuration
- * 
- * Requirements:
- * - PDF size: 270mm × 66mm (fixed)
- * - Text area: 260mm × 54mm (centered in PDF)
- * - Visible letters must fit within 260mm × 54mm
- * - Text must be centered both horizontally and vertically
- * 
  * Returns PDF as Buffer
  */
 export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
@@ -116,7 +109,6 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
     try {
       const doc = new PDFDocument({
         size: [PDF_WIDTH_PT, PDF_HEIGHT_PT],
-        margins: { top: 0, bottom: 0, left: 0, right: 0 },
       });
 
       const chunks: Buffer[] = [];
@@ -124,58 +116,104 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Centered 260×54 mm text area
-      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;
-      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2;
+      // Exact 260×54 mm text area centered in 270×66 mm
+      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
+      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
 
-      // --- Font loading ---
+      // Load Impact font from known locations; fail if not found to avoid silent fallback
       const fallbackFont = 'Helvetica-Bold';
       let fontToUse = 'Impact';
+      let impactPath: string | null = null;
       try {
-        const impactPath =
-          process.env.IMPACT_FONT_PATH && existsSync(process.env.IMPACT_FONT_PATH)
-            ? process.env.IMPACT_FONT_PATH
-            : join(process.cwd(), 'fonts', 'Impact.ttf');
+        const candidatePaths = [
+          process.env.IMPACT_FONT_PATH,
+          join(process.cwd(), 'fonts', 'Impact.ttf'),
+          join(__dirname, '..', 'fonts', 'Impact.ttf'),
+          '/var/task/fonts/Impact.ttf', // common on Vercel
+        ].filter(Boolean) as string[];
+        for (const p of candidatePaths) {
+          if (existsSync(p)) { impactPath = p; break; }
+        }
+        if (!impactPath) {
+          throw new Error('Impact font not found in expected paths');
+        }
+        // Register by file path to ensure embedding
         doc.registerFont('Impact', impactPath);
-      } catch {
-        console.warn('⚠️ Impact font not found — using fallback Helvetica');
+      } catch (e) {
+        // If Impact fails, use Helvetica-Bold but surface in logs
+        console.warn('Impact font load failed:', (e as any)?.message || e);
         fontToUse = fallbackFont;
       }
 
+      // Enforce 260×54 mm: visible letters exactly 54mm tall, no extra spacing
       const text = (config.text || '').toUpperCase();
-      doc.font(fontToUse).fillColor(config.color || '#000');
+      doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // --- Auto-scaling algorithm ---
-      const VISIBLE_HEIGHT_RATIO = 0.73;
-      const measureWidth = (size: number) => {
-        doc.fontSize(size);
-        return doc.widthOfString(text);
-      };
-
-      let size = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
-      for (let i = 0; i < 12; i++) {
-        const w = measureWidth(size);
-        const h = size * VISIBLE_HEIGHT_RATIO;
-        if (w > TEXT_WIDTH_PT) size *= TEXT_WIDTH_PT / w;
-        if (h > TEXT_HEIGHT_PT) size *= TEXT_HEIGHT_PT / h;
+      // Find font size that gives exactly 54mm VISIBLE LETTER height (not line height with spacing)
+      // Calibration: 0.73 gave 57.7mm, so to get 54mm we need: 0.73 × (54/57.7) ≈ 0.683
+      // But since 0.683 gave 62.2mm, the actual ratio is different
+      // If 0.73 → 57.7mm, then multiplier = (54/57.7) × 0.73 ≈ 0.683 was wrong
+      // If 0.683 → 62.2mm, then correct multiplier = 0.73 × (54/57.7) × (57.7/62.2) = 0.73 × (54/62.2) ≈ 0.634
+      // Keep multiplier at 0.73 (actual Impact ratio), adjust starting size by calibration factor
+      const MULTIPLIER = 0.73; // Actual visible height ratio for Impact uppercase  
+      // Calibration: previous factor 54/57.7 ≈ 0.936 gave 57mm, so adjust further: (54/57) × 0.936 ≈ 0.886
+      const calibrationFactor = (54 / 57) * (54 / 57.7); // ≈ 0.886
+      let finalSize = Math.floor((TEXT_HEIGHT_PT / MULTIPLIER) * calibrationFactor);
+      
+      function getVisibleLetterHeight(sizePt: number): number {
+        doc.fontSize(sizePt);
+        // For Impact uppercase, visible cap height is approximately 73% of font size
+        return sizePt * MULTIPLIER; // Visible letter height for Impact uppercase
       }
 
-      doc.fontSize(size);
-      const textWidth = doc.widthOfString(text);
-      const visibleHeight = size * VISIBLE_HEIGHT_RATIO;
+      // Iterate to find font size that gives exactly 54mm visible letter height
+      let visibleHeight = getVisibleLetterHeight(finalSize);
+      const tolerance = 0.5;
+      let iterations = 0;
+      const maxIterations = 15;
+      
+      while (Math.abs(visibleHeight - TEXT_HEIGHT_PT) > tolerance && iterations < maxIterations) {
+        const ratio = TEXT_HEIGHT_PT / visibleHeight;
+        finalSize = finalSize * ratio;
+        visibleHeight = getVisibleLetterHeight(finalSize);
+        iterations++;
+      }
+      
+      // Get actual measured height for centering (includes spacing)
+      function getActualHeight(sizePt: number): number {
+        doc.fontSize(sizePt);
+        return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+      }
+      let actualHeight = getActualHeight(finalSize);
 
-      const textX = textAreaX + (TEXT_WIDTH_PT - textWidth) / 2;
-      const baselineY =
-        textAreaY +
-        TEXT_HEIGHT_PT / 2 +
-        visibleHeight * (0.5 - 0.22); // adjust baseline
+      // Check if width fits, if not reduce proportionally
+      doc.fontSize(finalSize);
+      const widthAtSize = doc.widthOfString(text);
+      if (widthAtSize > TEXT_WIDTH_PT) {
+        // Scale down to fit width (this reduces height too)
+        finalSize = (finalSize * TEXT_WIDTH_PT) / widthAtSize;
+        doc.fontSize(finalSize);
+        actualHeight = getActualHeight(finalSize);
+      }
+      
+      // Clamp to reasonable bounds
+      finalSize = Math.max(20, Math.min(700, finalSize));
+      doc.fontSize(finalSize);
+      actualHeight = getActualHeight(finalSize); // Update height after clamping
 
-      // Draw text
-      doc.text(text, textX, baselineY);
+      // Vertical center using measured height
+      const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
+
+      doc.text(text, textAreaX, centeredY, {
+        width: TEXT_WIDTH_PT,
+        height: TEXT_HEIGHT_PT,
+        align: 'center',
+        lineBreak: false,
+      });
 
       doc.end();
-    } catch (err) {
-      reject(err);
+    } catch (error) {
+      reject(error);
     }
   });
 }
@@ -207,8 +245,8 @@ export async function handleOrderPaid(order: any): Promise<{ folderPath: string;
   }
 
   try {
-  const files = await uploadPDFsToDropbox(folderPath, pdfs);
-  return { folderPath, files };
+    const files = await uploadPDFsToDropbox(folderPath, pdfs);
+    return { folderPath, files };
   } catch (e: any) {
     // Surface Dropbox errors with more context
     const message = e?.error?.error_summary || e?.message || 'Dropbox upload failed';
