@@ -135,14 +135,14 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         if (orderDigits) {
           // Draw order number vertically, rotated 90 degrees counterclockwise
           // Numbers should be aligned from bottom to top, rotated to the left
-          const orderNumFontSize = 22; // Font size in points for order number
+          const orderNumFontSize = 14; // Smaller font size in points for order number
           doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor('#000000');
           
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
           
-          // Position from bottom to top
-          const digitHeight = orderNumFontSize * 1.3; // Space between digits
+          // Position from bottom to top - no spaces between digits
+          const digitHeight = orderNumFontSize; // No extra spacing, digits touch each other
           const paddingBottom = 5 * MM_TO_PT; // 5mm padding from bottom
           
           // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
