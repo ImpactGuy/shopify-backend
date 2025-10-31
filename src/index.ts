@@ -153,8 +153,9 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           const totalOrderNumHeight = digitHeight * (orderDigits.length - 1);
           const verticalCenter = PDF_HEIGHT_PT / 2;
           // Center the entire sequence: start from center, offset by half the total span
-          // This positions the middle of the digit sequence at the center
-          const startY = verticalCenter - (totalOrderNumHeight / 2);
+          // Shift slightly lower (toward bottom) by adding a small offset
+          const bottomOffset = 4 * MM_TO_PT; // 4mm offset toward bottom
+          const startY = verticalCenter - (totalOrderNumHeight / 2) - bottomOffset;
           
           // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
           // For order "1234": display as 1(bottom), 2, 3, 4(top)
