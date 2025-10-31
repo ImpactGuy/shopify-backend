@@ -141,39 +141,34 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
           
-          // Calculate actual text height for tighter spacing and better centering
-          doc.fontSize(orderNumFontSize);
-          const actualDigitHeight = doc.heightOfString('0', { width: orderNumFontSize * 2, lineGap: 0 });
+          // Use consistent fixed spacing between digits (tight, no gaps)
+          const digitSpacing = orderNumFontSize * 0.85; // Consistent tight spacing
           
-          // Use tighter spacing - multiply by a factor less than 1 for minimal gaps
-          const digitHeight = actualDigitHeight * 0.9; // Tight spacing between digits
-          
-          // Calculate total height and center vertically in PDF
-          // Total span from center of first digit to center of last digit
-          const totalOrderNumHeight = digitHeight * (orderDigits.length - 1);
+          // Calculate total height for centering
+          const totalOrderNumHeight = digitSpacing * (orderDigits.length - 1);
           const verticalCenter = PDF_HEIGHT_PT / 2;
-          // Center the entire sequence: start from center, offset by half the total span
-          // Shift slightly lower (toward bottom) by adding a small offset
+          // Shift slightly lower (toward bottom)
           const bottomOffset = 4 * MM_TO_PT; // 4mm offset toward bottom
           const startY = verticalCenter - (totalOrderNumHeight / 2) - bottomOffset;
           
-          // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
+          // Draw each digit from bottom to top, rotated correctly to avoid mirror effect
           // For order "1234": display as 1(bottom), 2, 3, 4(top)
-          // Draw in original order: first digit at bottom position
+          // Keep original order: first digit at bottom position
           for (let i = 0; i < orderDigits.length; i++) {
-            const digit = orderDigits[i]; // Original order: first digit is first
-            // Position from bottom to top: first digit at startY (lowest Y), increasing upward
-            const y = startY + (i * digitHeight);
+            const digit = orderDigits[i]; // Original order: first digit first
+            // Position from bottom to top with consistent spacing
+            const y = startY + (i * digitSpacing);
             
-            // Save current state, rotate, draw digit, restore
+            // Save current state, rotate -90 degrees (counterclockwise), adjust text position to avoid mirror effect
             doc.save()
                .translate(orderNumCenterX, y)
-               .rotate(-90, { origin: [0, 0] })
+               .rotate(-90, { origin: [0, 0] }) // Rotate -90 degrees counterclockwise (point left)
                .font('Helvetica-Bold')
                .fontSize(orderNumFontSize)
                .fillColor('#000000')
-               .text(digit, 0, 0, {
-                 width: orderNumFontSize * 2,
+               // Adjust text position after rotation to center correctly
+               .text(digit, -orderNumFontSize / 2, -orderNumFontSize / 2, {
+                 width: orderNumFontSize,
                  align: 'center',
                })
                .restore();
