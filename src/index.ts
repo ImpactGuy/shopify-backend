@@ -150,15 +150,16 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
       // Find font size that gives exactly 54mm VISIBLE LETTER height (not line height with spacing)
-      // For Impact uppercase: visible letter height ≈ font size × 0.72-0.75 (cap height)
-      // So to get 54mm visible letters, we need font size ≈ 54mm / 0.73 ≈ 74mm
-      let finalSize = Math.floor(TEXT_HEIGHT_PT / 0.73); // Start estimate for visible letter height
+      // For Impact uppercase: visible letter height ≈ font size × 0.683 (cap height, calibrated to 54mm)
+      // So to get 54mm visible letters, we need font size ≈ 54mm / 0.683 ≈ 79mm
+      let finalSize = Math.floor(TEXT_HEIGHT_PT / 0.683); // Start estimate for visible letter height
       
       function getVisibleLetterHeight(sizePt: number): number {
         doc.fontSize(sizePt);
-        // For Impact uppercase, visible cap height is approximately 73% of font size
+        // For Impact uppercase, visible cap height is approximately 68.3% of font size
         // This accounts for the fact that font size includes spacing above/below
-        return sizePt * 0.73; // Visible letter height for Impact uppercase
+        // Calibrated to give exactly 54mm visible height
+        return sizePt * 0.683; // Visible letter height for Impact uppercase
       }
 
       // Iterate to find font size that gives exactly 54mm visible letter height
