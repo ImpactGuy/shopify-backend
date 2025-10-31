@@ -156,7 +156,8 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       // If 0.683 → 62.2mm, then correct multiplier = 0.73 × (54/57.7) × (57.7/62.2) = 0.73 × (54/62.2) ≈ 0.634
       // Keep multiplier at 0.73 (actual Impact ratio), adjust starting size by calibration factor
       const MULTIPLIER = 0.73; // Actual visible height ratio for Impact uppercase  
-      const calibrationFactor = 54 / 57.7; // 0.73 gave 57.7mm, so scale down by 54/57.7 ≈ 0.936
+      // Calibration: previous factor 54/57.7 ≈ 0.936 gave 57mm, so adjust further: (54/57) × 0.936 ≈ 0.886
+      const calibrationFactor = (54 / 57) * (54 / 57.7); // ≈ 0.886
       let finalSize = Math.floor((TEXT_HEIGHT_PT / MULTIPLIER) * calibrationFactor);
       
       function getVisibleLetterHeight(sizePt: number): number {
