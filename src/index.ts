@@ -109,7 +109,12 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
     try {
       const doc = new PDFDocument({
         size: [PDF_WIDTH_PT, PDF_HEIGHT_PT],
+        autoFirstPage: true,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
       });
+      
+      // Ensure only one page - disable auto page breaks
+      doc.switchToPage(0);
 
       const chunks: Buffer[] = [];
       doc.on('data', (chunk) => chunks.push(chunk));
@@ -207,14 +212,35 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       
       // Ensure Y is within bounds (never negative or too high)
       const safeY = Math.max(textAreaY, Math.min(centeredY, textAreaY + TEXT_HEIGHT_PT - capHeight));
-
-      // Render text - use exact positioning, no height constraint to avoid clipping
-      doc.text(text, textAreaX, safeY, {
-        width: TEXT_WIDTH_PT,
-        align: 'center',
+      
+      // Ensure we're on the first page (and only page)
+      if (doc.page.pageNumber !== 1) {
+        doc.switchToPage(0);
+      }
+      
+      // Disable automatic page creation completely
+      const originalAddPage = doc.addPage;
+      doc.addPage = function() { return this; }; // No-op to prevent page additions
+      
+      // Calculate exact center position - measure text width and center it manually
+      // This prevents any wrapping or page breaks that could cause multiple sections
+      doc.fontSize(finalSize);
+      const textWidth = doc.widthOfString(text);
+      const centerX = textAreaX + TEXT_WIDTH_PT / 2;
+      const textStartX = centerX - textWidth / 2; // Left edge for centering
+      
+      // Move to exact position and render as single continuous line
+      doc.x = textStartX;
+      doc.y = safeY;
+      
+      // Render text without any width/height constraints to prevent wrapping or page breaks
+      doc.text(text, 0, 0, {
         lineBreak: false,
       });
 
+      // Restore original function
+      doc.addPage = originalAddPage;
+      
       doc.end();
     } catch (error) {
       reject(error);
