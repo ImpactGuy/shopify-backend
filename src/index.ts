@@ -135,25 +135,26 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         if (orderDigits) {
           // Draw order number vertically, rotated 90 degrees counterclockwise
           // Numbers should be aligned from bottom to top, rotated to the left
-          const orderNumFontSize = 10; // Even smaller font size in points for order number
+          const orderNumFontSize = 12; // Slightly larger font size in points for order number
           doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor('#000000');
           
-          // Measure actual text height for tight spacing
-          const testHeight = doc.heightOfString('0', { width: orderNumFontSize * 2 });
+          // Use tighter spacing - use font size directly for minimal gaps
+          // For Helvetica-Bold, the actual character height is approximately the font size
+          const digitHeight = orderNumFontSize * 0.95; // Slightly less than font size to ensure tight spacing
           
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
           
           // Calculate total height and center vertically in PDF
-          const totalOrderNumHeight = testHeight * orderDigits.length;
+          const totalOrderNumHeight = digitHeight * orderDigits.length;
           const verticalCenter = PDF_HEIGHT_PT / 2;
-          const startY = verticalCenter - (totalOrderNumHeight / 2) + (testHeight / 2);
+          const startY = verticalCenter - (totalOrderNumHeight / 2);
           
           // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
           // First digit at bottom, last digit at top - digits tightly linked
           for (let i = 0; i < orderDigits.length; i++) {
             const digit = orderDigits[i];
-            const y = startY + (i * testHeight);
+            const y = startY + (i * digitHeight);
             
             // Save current state, rotate, draw digit, restore
             doc.save()
