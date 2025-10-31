@@ -149,42 +149,24 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Find font size that gives exactly 54mm VISIBLE LETTER height (not line height with spacing)
-      // Calibration: 0.73 gave 57.7mm, so to get 54mm we need: 0.73 × (54/57.7) ≈ 0.683
-      // But since 0.683 gave 62.2mm, the actual ratio is different
-      // If 0.73 → 57.7mm, then multiplier = (54/57.7) × 0.73 ≈ 0.683 was wrong
-      // If 0.683 → 62.2mm, then correct multiplier = 0.73 × (54/57.7) × (57.7/62.2) = 0.73 × (54/62.2) ≈ 0.634
-      // Keep multiplier at 0.73 (actual Impact ratio), adjust starting size by calibration factor
-      const MULTIPLIER = 0.73; // Actual visible height ratio for Impact uppercase  
-      // Calibration: previous factor 54/57.7 ≈ 0.936 gave 57mm, so adjust further: (54/57) × 0.936 ≈ 0.886
-      const calibrationFactor = (54 / 57) * (54 / 57.7); // ≈ 0.886
-      let finalSize = Math.floor((TEXT_HEIGHT_PT / MULTIPLIER) * calibrationFactor);
+      // Binary search to find font size that gives exactly 54mm visible height
+      // Font size != visible height, so iterate to find correct size
+      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
       
-      function getVisibleLetterHeight(sizePt: number): number {
-        doc.fontSize(sizePt);
-        // For Impact uppercase, visible cap height is approximately 73% of font size
-        return sizePt * MULTIPLIER; // Visible letter height for Impact uppercase
-      }
-
-      // Iterate to find font size that gives exactly 54mm visible letter height
-      let visibleHeight = getVisibleLetterHeight(finalSize);
-      const tolerance = 0.5;
-      let iterations = 0;
-      const maxIterations = 15;
-      
-      while (Math.abs(visibleHeight - TEXT_HEIGHT_PT) > tolerance && iterations < maxIterations) {
-        const ratio = TEXT_HEIGHT_PT / visibleHeight;
-        finalSize = finalSize * ratio;
-        visibleHeight = getVisibleLetterHeight(finalSize);
-        iterations++;
-      }
-      
-      // Get actual measured height for centering (includes spacing)
       function getActualHeight(sizePt: number): number {
         doc.fontSize(sizePt);
         return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
       }
+
+      // Find font size that gives exactly 54mm visible height
       let actualHeight = getActualHeight(finalSize);
+      const tolerance = 0.5;
+      let iterations = 0;
+      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
+        finalSize = (finalSize * TEXT_HEIGHT_PT) / actualHeight;
+        actualHeight = getActualHeight(finalSize);
+        iterations++;
+      }
 
       // Check if width fits, if not reduce proportionally
       doc.fontSize(finalSize);
