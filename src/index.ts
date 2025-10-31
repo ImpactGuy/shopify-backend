@@ -155,51 +155,50 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       // If 0.73 → 57.7mm, then multiplier = (54/57.7) × 0.73 ≈ 0.683 was wrong
       // If 0.683 → 62.2mm, then correct multiplier = 0.73 × (54/57.7) × (57.7/62.2) = 0.73 × (54/62.2) ≈ 0.634
       // Keep multiplier at 0.73 (actual Impact ratio), adjust starting size by calibration factor
-      const MULTIPLIER = 0.73; // Actual visible height ratio for Impact uppercase  
-      // Calibration: previous factor 54/57.7 ≈ 0.936 gave 57mm, so adjust further: (54/57) × 0.936 ≈ 0.886
-      const calibrationFactor = (54 / 57) * (54 / 57.7); // ≈ 0.886
-      let finalSize = Math.floor((TEXT_HEIGHT_PT / MULTIPLIER) * calibrationFactor);
+      // Binary search to find maximum font size that satisfies BOTH constraints:
+      // 1. Visible letter height ≤ 54mm (TEXT_HEIGHT_PT)  
+      // 2. Width ≤ 260mm (TEXT_WIDTH_PT)
+      // For Impact uppercase: visible letter height ≈ font size × 0.68 (calibrated)
       
       function getVisibleLetterHeight(sizePt: number): number {
         doc.fontSize(sizePt);
-        // For Impact uppercase, visible cap height is approximately 73% of font size
-        return sizePt * MULTIPLIER; // Visible letter height for Impact uppercase
+        return sizePt * 0.68; // Visible letter height for Impact uppercase
+      }
+      
+      function getWidth(sizePt: number): number {
+        doc.fontSize(sizePt);
+        return doc.widthOfString(text);
       }
 
-      // Iterate to find font size that gives exactly 54mm visible letter height
-      let visibleHeight = getVisibleLetterHeight(finalSize);
-      const tolerance = 0.5;
-      let iterations = 0;
-      const maxIterations = 15;
+      // Binary search to find max size that fits both constraints
+      let minSize = 20;
+      let maxSize = 700;
+      let finalSize = Math.floor(TEXT_HEIGHT_PT / 0.68);
       
-      while (Math.abs(visibleHeight - TEXT_HEIGHT_PT) > tolerance && iterations < maxIterations) {
-        const ratio = TEXT_HEIGHT_PT / visibleHeight;
-        finalSize = finalSize * ratio;
-        visibleHeight = getVisibleLetterHeight(finalSize);
-        iterations++;
+      for (let i = 0; i < 20; i++) {
+        const testSize = (minSize + maxSize) / 2;
+        const visibleHeight = getVisibleLetterHeight(testSize);
+        const width = getWidth(testSize);
+        
+        if (visibleHeight <= TEXT_HEIGHT_PT && width <= TEXT_WIDTH_PT) {
+          finalSize = testSize;
+          minSize = testSize;
+        } else {
+          maxSize = testSize;
+        }
+        
+        if (maxSize - minSize < 0.1) break;
       }
+      
+      finalSize = Math.max(20, Math.min(700, finalSize));
+      doc.fontSize(finalSize);
       
       // Get actual measured height for centering (includes spacing)
       function getActualHeight(sizePt: number): number {
         doc.fontSize(sizePt);
         return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
       }
-      let actualHeight = getActualHeight(finalSize);
-
-      // Check if width fits, if not reduce proportionally
-      doc.fontSize(finalSize);
-      const widthAtSize = doc.widthOfString(text);
-      if (widthAtSize > TEXT_WIDTH_PT) {
-        // Scale down to fit width (this reduces height too)
-        finalSize = (finalSize * TEXT_WIDTH_PT) / widthAtSize;
-        doc.fontSize(finalSize);
-        actualHeight = getActualHeight(finalSize);
-      }
-      
-      // Clamp to reasonable bounds
-      finalSize = Math.max(20, Math.min(700, finalSize));
-      doc.fontSize(finalSize);
-      actualHeight = getActualHeight(finalSize); // Update height after clamping
+      const actualHeight = getActualHeight(finalSize);
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
