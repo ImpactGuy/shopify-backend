@@ -170,11 +170,13 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       let finalSize = targetSizeFor54mm;
 
       // Check width constraint - if it doesn't fit, scale down proportionally
+      // Add small margin to prevent edge clipping
       doc.fontSize(finalSize);
       const width = getWidth(finalSize);
       if (width > TEXT_WIDTH_PT) {
-        // Scale down to fit width (this will also reduce height proportionally)
-        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
+        // Scale down to fit width with 2% margin for safety
+        const widthMargin = 0.98;
+        finalSize = (finalSize * TEXT_WIDTH_PT * widthMargin) / width;
       }
       
       // Final check: ensure visible height doesn't exceed 54mm
@@ -188,19 +190,16 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
       
-      // Get actual measured height for centering (includes spacing)
-      function getActualHeight(sizePt: number): number {
-        doc.fontSize(sizePt);
-        return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
-      }
-      const actualHeight = getActualHeight(finalSize);
+      // Calculate vertical position for proper centering
+      // For Impact uppercase single line, use font size as base height
+      // Adjust for proper visual centering (accounting for font metrics)
+      const baseLineHeight = finalSize; // Base height for Impact uppercase
+      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - baseLineHeight) / 2);
 
-      // Vertical center using measured height
-      const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
-
+      // Render text with proper bounds - ensure full visibility
+      // Remove height constraint to prevent clipping, use width only
       doc.text(text, textAreaX, centeredY, {
         width: TEXT_WIDTH_PT,
-        height: TEXT_HEIGHT_PT,
         align: 'center',
         lineBreak: false,
       });
