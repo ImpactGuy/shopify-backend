@@ -116,157 +116,66 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
     try {
       const doc = new PDFDocument({
         size: [PDF_WIDTH_PT, PDF_HEIGHT_PT],
-        autoFirstPage: true,
         margins: { top: 0, bottom: 0, left: 0, right: 0 },
       });
-      
-      // Ensure only one page - disable auto page breaks
-      doc.switchToPage(0);
 
       const chunks: Buffer[] = [];
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Exact 260×54 mm text area centered in 270×66 mm
-      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
-      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
+      // Centered 260×54 mm text area
+      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;
+      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2;
 
-      // Load Impact font from known locations; fail if not found to avoid silent fallback
+      // --- Font loading ---
       const fallbackFont = 'Helvetica-Bold';
       let fontToUse = 'Impact';
-      let impactPath: string | null = null;
       try {
-        const candidatePaths = [
-          process.env.IMPACT_FONT_PATH,
-          join(process.cwd(), 'fonts', 'Impact.ttf'),
-          join(__dirname, '..', 'fonts', 'Impact.ttf'),
-          '/var/task/fonts/Impact.ttf', // common on Vercel
-        ].filter(Boolean) as string[];
-        for (const p of candidatePaths) {
-          if (existsSync(p)) { impactPath = p; break; }
-        }
-        if (!impactPath) {
-          throw new Error('Impact font not found in expected paths');
-        }
-        // Register by file path to ensure embedding
+        const impactPath =
+          process.env.IMPACT_FONT_PATH && existsSync(process.env.IMPACT_FONT_PATH)
+            ? process.env.IMPACT_FONT_PATH
+            : join(process.cwd(), 'fonts', 'Impact.ttf');
         doc.registerFont('Impact', impactPath);
-      } catch (e) {
-        // If Impact fails, use Helvetica-Bold but surface in logs
-        console.warn('Impact font load failed:', (e as any)?.message || e);
+      } catch {
+        console.warn('⚠️ Impact font not found — using fallback Helvetica');
         fontToUse = fallbackFont;
       }
 
-      // Enforce 260×54 mm: visible letters exactly 54mm tall (max), width max 260mm
       const text = (config.text || '').toUpperCase();
-      doc.font(fontToUse).fillColor(config.color || '#000000');
+      doc.font(fontToUse).fillColor(config.color || '#000');
 
-      // ========================================
-      // FONT SIZING ALGORITHM (NEW CLEAN APPROACH)
-      // ========================================
-      // Goal: Find font size where:
-      // 1. Text width ≤ 260mm
-      // 2. Visible letter height ≤ 54mm
-      // 3. Both constraints satisfied simultaneously
-      
-      // For Impact uppercase, visible cap height ≈ font size × VISIBLE_HEIGHT_RATIO
-      // Calibrated: 0.73 means 73% of font size is visible cap height
+      // --- Auto-scaling algorithm ---
       const VISIBLE_HEIGHT_RATIO = 0.73;
-      
-      function measureWidth(fontSizePt: number): number {
-        doc.fontSize(fontSizePt);
+      const measureWidth = (size: number) => {
+        doc.fontSize(size);
         return doc.widthOfString(text);
-      }
-      
-      function getVisibleHeight(fontSizePt: number): number {
-        return fontSizePt * VISIBLE_HEIGHT_RATIO;
-      }
-      
-      // Start with font size that would give 54mm visible height
-      let optimalSize = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
-      
-      // Iteratively refine to satisfy both width and height constraints
-      for (let i = 0; i < 15; i++) {
-        const testWidth = measureWidth(optimalSize);
-        const testVisibleHeight = getVisibleHeight(optimalSize);
-        
-        // If too wide, scale down based on width
-        if (testWidth > TEXT_WIDTH_PT) {
-          optimalSize = (optimalSize * TEXT_WIDTH_PT) / testWidth;
-        }
-        
-        // If too tall, scale down based on height
-        if (testVisibleHeight > TEXT_HEIGHT_PT) {
-          optimalSize = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
-        }
-        
-        // Clamp to reasonable bounds
-        optimalSize = Math.max(20, Math.min(optimalSize, 800));
-      }
-      
-      // Final measurements
-      const finalSize = optimalSize;
-      doc.fontSize(finalSize);
-      const finalWidth = measureWidth(finalSize);
-      const finalVisibleHeight = getVisibleHeight(finalSize);
-      
-      // ========================================
-      // POSITIONING ALGORITHM (SIMPLIFIED & CORRECT)
-      // ========================================
-      // PDFKit's doc.text(x, y) uses Y as BASELINE, not top of text
-      
-      // Horizontal centering: center text within 260mm width
-      const textAreaCenterX = textAreaX + TEXT_WIDTH_PT / 2;
-      const textX = textAreaCenterX - finalWidth / 2;
-      
-      // Vertical centering: use a simpler approach
-      // For Impact uppercase: the actual rendered height from PDFKit
-      // We want to center the text in the 54mm box
-      
-      // Measure actual text height using PDFKit (includes ascent + descent)
-      doc.fontSize(finalSize);
-      const measuredTextHeight = doc.heightOfString(text);
-      
-      // For Impact uppercase, most text is above baseline
-      // Cap height (visible letters) is roughly 70% of total text height, centered above baseline
-      // So center of cap height is at: baselineY + (measuredTextHeight * 0.35)
-      
-      // Center of the 54mm text area
-      const textAreaCenterY = textAreaY + TEXT_HEIGHT_PT / 2;
-      
-      // Position baseline so center of visible cap height aligns with center of text area
-      // centerOfCapHeight = baselineY + (measuredTextHeight * 0.35)
-      // To center: baselineY + (measuredTextHeight * 0.35) = textAreaCenterY
-      // Therefore: baselineY = textAreaCenterY - (measuredTextHeight * 0.35)
-      const baselineY = textAreaCenterY - (measuredTextHeight * 0.35);
-      
-      // Safety bounds: ensure text stays within visible area
-      // Leave small margins to prevent clipping
-      const margin = 2; // 2 points margin
-      const minBaselineY = textAreaY + margin;
-      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - measuredTextHeight + margin;
-      const safeBaselineY = Math.max(minBaselineY, Math.min(baselineY, maxBaselineY));
-      
-      // Ensure we're on the first and only page
-      doc.switchToPage(0);
-      
-      // Disable automatic page creation to prevent multiple pages
-      const originalAddPage = doc.addPage;
-      doc.addPage = function() { return this; };
-      
-      // ========================================
-      // RENDERING
-      // ========================================
-      // Render text at calculated position
-      // No width/height parameters to prevent clipping or wrapping
-      doc.text(text, textX, safeBaselineY);
+      };
 
-      // Restore original function
-      doc.addPage = originalAddPage;
+      let size = TEXT_HEIGHT_PT / VISIBLE_HEIGHT_RATIO;
+      for (let i = 0; i < 12; i++) {
+        const w = measureWidth(size);
+        const h = size * VISIBLE_HEIGHT_RATIO;
+        if (w > TEXT_WIDTH_PT) size *= TEXT_WIDTH_PT / w;
+        if (h > TEXT_HEIGHT_PT) size *= TEXT_HEIGHT_PT / h;
+      }
+
+      doc.fontSize(size);
+      const textWidth = doc.widthOfString(text);
+      const visibleHeight = size * VISIBLE_HEIGHT_RATIO;
+
+      const textX = textAreaX + (TEXT_WIDTH_PT - textWidth) / 2;
+      const baselineY =
+        textAreaY +
+        TEXT_HEIGHT_PT / 2 +
+        visibleHeight * (0.5 - 0.22); // adjust baseline
+
+      // Draw text
+      doc.text(text, textX, baselineY);
 
       doc.end();
-    } catch (error) {
-      reject(error);
+    } catch (err) {
+      reject(err);
     }
   });
 }
