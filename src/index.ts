@@ -145,51 +145,44 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         fontToUse = fallbackFont;
       }
 
-      // Enforce 260×54 mm: visible letters exactly 54mm tall, no extra spacing
+      // Enforce 260×54 mm: visible letters exactly 54mm tall (max), width max 260mm
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Find font size that gives exactly 54mm VISIBLE LETTER height (not line height with spacing)
-      // Calibration: 0.73 gave 57.7mm, so to get 54mm we need: 0.73 × (54/57.7) ≈ 0.683
-      // But since 0.683 gave 62.2mm, the actual ratio is different
-      // If 0.73 → 57.7mm, then multiplier = (54/57.7) × 0.73 ≈ 0.683 was wrong
-      // If 0.683 → 62.2mm, then correct multiplier = 0.73 × (54/57.7) × (57.7/62.2) = 0.73 × (54/62.2) ≈ 0.634
-      // Keep multiplier at 0.73 (actual Impact ratio), adjust starting size by calibration factor
-      // Binary search to find maximum font size that satisfies BOTH constraints:
-      // 1. Visible letter height ≤ 54mm (TEXT_HEIGHT_PT)  
-      // 2. Width ≤ 260mm (TEXT_WIDTH_PT)
-      // For Impact uppercase: visible letter height ≈ font size × 0.68 (calibrated)
-      
-      function getVisibleLetterHeight(sizePt: number): number {
-        doc.fontSize(sizePt);
-        return sizePt * 0.68; // Visible letter height for Impact uppercase
-      }
+      // Algorithm: For Impact uppercase, font size in points ≈ visible letter height
+      // Target: 54mm visible height = 153 points
+      // But need to account for actual font metrics, so use calibrated ratio
+      // Calibration from user feedback: need to be more conservative
       
       function getWidth(sizePt: number): number {
         doc.fontSize(sizePt);
         return doc.widthOfString(text);
       }
 
-      // Binary search to find max size that fits both constraints
-      let minSize = 20;
-      let maxSize = 700;
-      let finalSize = Math.floor(TEXT_HEIGHT_PT / 0.68);
-      
-      for (let i = 0; i < 20; i++) {
-        const testSize = (minSize + maxSize) / 2;
-        const visibleHeight = getVisibleLetterHeight(testSize);
-        const width = getWidth(testSize);
-        
-        if (visibleHeight <= TEXT_HEIGHT_PT && width <= TEXT_WIDTH_PT) {
-          finalSize = testSize;
-          minSize = testSize;
-        } else {
-          maxSize = testSize;
-        }
-        
-        if (maxSize - minSize < 0.1) break;
+      // Start with font size that targets 54mm visible height
+      // For Impact, visible height ≈ font size × 0.93 (calibrated: 58mm result means need smaller ratio)
+      // To get 54mm: font size = 54mm / 0.93 ≈ 58mm in points = 164pt
+      // But to be safe and ensure ≤ 54mm, use: 54mm / 0.95 = Controls 153pt (more conservative)
+      let targetSizeFor54mm = Math.floor(TEXT_HEIGHT_PT / 0.90); // Conservative multiplier to ensure ≤ 54mm
+      let finalSize = targetSizeFor54mm;
+
+      // Check width constraint - if it doesn't fit, scale down proportionally
+      doc.fontSize(finalSize);
+      const width = getWidth(finalSize);
+      if (width > TEXT_WIDTH_PT) {
+        // Scale down to fit width (this will also reduce height proportionally)
+        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
       }
       
+      // Final check: ensure we never exceed 54mm visible height
+      // For Impact: visible height = font size × 0.93
+      const estimatedVisibleHeight = finalSize * 0.93;
+      if (estimatedVisibleHeight > TEXT_HEIGHT_PT) {
+        // Clamp to ensure ≤ 54mm
+        finalSize = TEXT_HEIGHT_PT / 0.93;
+      }
+      
+      // Clamp to reasonable bounds
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
       
