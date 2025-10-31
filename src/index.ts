@@ -163,7 +163,10 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       // For Impact, visible height ≈ font size × 0.93 (calibrated: 58mm result means need smaller ratio)
       // To get 54mm: font size = 54mm / 0.93 ≈ 58mm in points = 164pt
       // But to be safe and ensure ≤ 54mm, use: 54mm / 0.95 = Controls 153pt (more conservative)
-      let targetSizeFor54mm = Math.floor(TEXT_HEIGHT_PT / 0.90); // Conservative multiplier to ensure ≤ 54mm
+      // Calibration: 0.90 gave 46mm visible, so actual ratio ≈ 0.767
+      // To get 54mm: font_size = 54mm / 0.767 ≈ 199pt
+      const CALIBRATED_RATIO = 0.767;
+      let targetSizeFor54mm = Math.floor(TEXT_HEIGHT_PT / CALIBRATED_RATIO);
       let finalSize = targetSizeFor54mm;
 
       // Check width constraint - if it doesn't fit, scale down proportionally
@@ -174,12 +177,11 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
         finalSize = (finalSize * TEXT_WIDTH_PT) / width;
       }
       
-      // Final check: ensure we never exceed 54mm visible height
-      // For Impact: visible height = font size × 0.93
-      const estimatedVisibleHeight = finalSize * 0.93;
-      if (estimatedVisibleHeight > TEXT_HEIGHT_PT) {
+      // Final check: ensure visible height doesn't exceed 54mm
+      const estimatedVisibleHeight = finalSize * CALIBRATED_RATIO;
+      if (estimatedVisibleHeight > TEXT_HEIGHT_PT * 1.01) { // 1% tolerance
         // Clamp to ensure ≤ 54mm
-        finalSize = TEXT_HEIGHT_PT / 0.93;
+        finalSize = TEXT_HEIGHT_PT / CALIBRATED_RATIO;
       }
       
       // Clamp to reasonable bounds
