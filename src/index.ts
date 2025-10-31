@@ -29,8 +29,9 @@ function sanitizePathName(name: string): string {
 }
 
 // PDF Dimensions (in millimeters)
-const PDF_WIDTH_MM = 270;
+const PDF_WIDTH_MM = 280; // Increased by 10mm for order number area
 const PDF_HEIGHT_MM = 66;
+const ORDER_NUMBER_WIDTH_MM = 10; // Left side area for order number
 const TEXT_MAX_WIDTH_MM = 260;
 const TEXT_MAX_HEIGHT_MM = 54;
 
@@ -38,6 +39,7 @@ const TEXT_MAX_HEIGHT_MM = 54;
 const MM_TO_PT = 2.834645669;
 const PDF_WIDTH_PT = PDF_WIDTH_MM * MM_TO_PT;
 const PDF_HEIGHT_PT = PDF_HEIGHT_MM * MM_TO_PT;
+const ORDER_NUMBER_WIDTH_PT = ORDER_NUMBER_WIDTH_MM * MM_TO_PT;
 const TEXT_WIDTH_PT = TEXT_MAX_WIDTH_MM * MM_TO_PT;
 const TEXT_HEIGHT_PT = TEXT_MAX_HEIGHT_MM * MM_TO_PT;
 
@@ -48,6 +50,7 @@ interface LabelConfig {
   color: string;
   quantity: number;
   configId: string;
+  orderNumber?: string; // Order number to display on the left side
 }
 
 /**
@@ -104,7 +107,7 @@ export function extractLabelConfigs(order: any): LabelConfig[] {
  * Generate PDF for a single label configuration
  * Returns PDF as Buffer
  */
-export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
+export async function generateLabelPDF(config: LabelConfig, orderNumber?: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -116,8 +119,57 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Exact 260×54 mm text area centered in 270×66 mm
-      const textAreaX = (PDF_WIDTH_PT - TEXT_WIDTH_PT) / 2;   // 5 mm
+      // Draw vertical border between order number and text area
+      const borderX = ORDER_NUMBER_WIDTH_PT;
+      doc.moveTo(borderX, 0)
+         .lineTo(borderX, PDF_HEIGHT_PT)
+         .lineWidth(1)
+         .strokeColor('#000000')
+         .stroke();
+
+      // Order number area: left side, 10mm wide
+      const orderNumToUse = orderNumber || config.orderNumber || '';
+      if (orderNumToUse) {
+        // Extract numeric digits from order number (e.g., "1234" from "Order #1234")
+        const orderDigits = orderNumToUse.replace(/\D/g, ''); // Remove non-digits
+        if (orderDigits) {
+          // Draw order number vertically, rotated 90 degrees counterclockwise
+          // Numbers should be aligned from bottom to top, rotated to the left
+          const orderNumFontSize = 22; // Font size in points for order number
+          doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor('#000000');
+          
+          // Center the order number area horizontally (within the 10mm width)
+          const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
+          
+          // Position from bottom to top
+          const digitHeight = orderNumFontSize * 1.3; // Space between digits
+          const paddingBottom = 5 * MM_TO_PT; // 5mm padding from bottom
+          
+          // Draw each digit from bottom to top, rotated -90 degrees (counterclockwise)
+          // First digit at bottom, last digit at top
+          for (let i = 0; i < orderDigits.length; i++) {
+            const digit = orderDigits[i];
+            const y = PDF_HEIGHT_PT - paddingBottom - ((orderDigits.length - 1 - i) * digitHeight);
+            
+            // Save current state, rotate, draw digit, restore
+            doc.save()
+               .translate(orderNumCenterX, y)
+               .rotate(-90, { origin: [0, 0] })
+               .font('Helvetica-Bold')
+               .fontSize(orderNumFontSize)
+               .fillColor('#000000')
+               .text(digit, 0, 0, {
+                 width: orderNumFontSize * 2,
+                 align: 'center',
+               })
+               .restore();
+          }
+        }
+      }
+
+      // Text area: shifted right by 10mm to account for order number area
+      // Text area remains 260×54 mm, but positioned after the order number area
+      const textAreaX = ORDER_NUMBER_WIDTH_PT + ((PDF_WIDTH_PT - ORDER_NUMBER_WIDTH_PT - TEXT_WIDTH_PT) / 2);
       const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
 
       // Load Impact font from known locations; fail if not found to avoid silent fallback
@@ -216,11 +268,14 @@ export async function handleOrderPaid(order: any): Promise<{ folderPath: string;
     return { folderPath, files: [] };
   }
 
+  // Extract order number from order
+  const orderNumber = order?.name || order?.order_number || order?.orderNumber || '';
+  
   const pdfs: Array<{ filename: string; buffer: Buffer }> = [];
   for (const cfg of labelConfigs) {
     const qty = Math.max(1, cfg.quantity || 1);
     for (let i = 1; i <= qty; i++) {
-      const buffer = await generateLabelPDF(cfg);
+      const buffer = await generateLabelPDF(cfg, orderNumber);
       const filename = `label-${cfg.configId || 'cfg'}-${i}.pdf`;
       pdfs.push({ filename, buffer });
     }
@@ -281,12 +336,15 @@ export async function handleOrderCreated(order: any): Promise<void> {
 
     console.log(`Found ${labelConfigs.length} label configuration(s)`);
 
+    // Extract order number from order
+    const orderNumber = order?.name || order?.order_number || order?.orderNumber || '';
+
     // Generate PDF for each configuration
     const pdfPromises = labelConfigs.map(async (config, index) => {
       // Generate PDF for quantity requested
       const pdfs: Buffer[] = [];
       for (let i = 0; i < config.quantity; i++) {
-        const pdf = await generateLabelPDF(config);
+        const pdf = await generateLabelPDF(config, orderNumber);
         pdfs.push(pdf);
       }
       return { config, pdfs };
@@ -349,7 +407,7 @@ if (require.main === module) {
         configId: 'demo',
       };
 
-      const pdfBuffer = await generateLabelPDF(sampleConfig);
+      const pdfBuffer = await generateLabelPDF(sampleConfig, '1234');
       const outDir = join(process.cwd(), 'dist');
       try { mkdirSync(outDir, { recursive: true }); } catch {}
       const outPath = join(outDir, 'sample-label.pdf');
