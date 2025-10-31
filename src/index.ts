@@ -211,28 +211,40 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const finalVisibleHeight = getVisibleHeight(finalSize);
       
       // ========================================
-      // POSITIONING ALGORITHM (NEW CLEAN APPROACH)
+      // POSITIONING ALGORITHM (SIMPLIFIED & CORRECT)
       // ========================================
       // PDFKit's doc.text(x, y) uses Y as BASELINE, not top of text
-      // For Impact uppercase, we need to calculate baseline position correctly
       
       // Horizontal centering: center text within 260mm width
       const textAreaCenterX = textAreaX + TEXT_WIDTH_PT / 2;
       const textX = textAreaCenterX - finalWidth / 2;
       
-      // Vertical centering: center visible letters within 54mm height
-      // For Impact uppercase: ~78% of visible height is above baseline, ~22% below
-      const BASELINE_OFFSET_RATIO = 0.22; // 22% of visible height below baseline
-      const heightAboveBaseline = finalVisibleHeight * (1 - BASELINE_OFFSET_RATIO);
+      // Vertical centering: use a simpler approach
+      // For Impact uppercase: the actual rendered height from PDFKit
+      // We want to center the text in the 54mm box
       
-      // Center visible letters in 54mm box
+      // Measure actual text height using PDFKit (includes ascent + descent)
+      doc.fontSize(finalSize);
+      const measuredTextHeight = doc.heightOfString(text);
+      
+      // For Impact uppercase, most text is above baseline
+      // Cap height (visible letters) is roughly 70% of total text height, centered above baseline
+      // So center of cap height is at: baselineY + (measuredTextHeight * 0.35)
+      
+      // Center of the 54mm text area
       const textAreaCenterY = textAreaY + TEXT_HEIGHT_PT / 2;
-      // Position baseline so visible letters are centered
-      const baselineY = textAreaCenterY - (finalVisibleHeight / 2) + heightAboveBaseline;
       
-      // Safety bounds: ensure text doesn't go outside text area
-      const minBaselineY = textAreaY + finalVisibleHeight * 0.1;
-      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - finalVisibleHeight * BASELINE_OFFSET_RATIO - 1;
+      // Position baseline so center of visible cap height aligns with center of text area
+      // centerOfCapHeight = baselineY + (measuredTextHeight * 0.35)
+      // To center: baselineY + (measuredTextHeight * 0.35) = textAreaCenterY
+      // Therefore: baselineY = textAreaCenterY - (measuredTextHeight * 0.35)
+      const baselineY = textAreaCenterY - (measuredTextHeight * 0.35);
+      
+      // Safety bounds: ensure text stays within visible area
+      // Leave small margins to prevent clipping
+      const margin = 2; // 2 points margin
+      const minBaselineY = textAreaY + margin;
+      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - measuredTextHeight + margin;
       const safeBaselineY = Math.max(minBaselineY, Math.min(baselineY, maxBaselineY));
       
       // Ensure we're on the first and only page
@@ -251,7 +263,7 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
 
       // Restore original function
       doc.addPage = originalAddPage;
-      
+
       doc.end();
     } catch (error) {
       reject(error);
@@ -286,8 +298,8 @@ export async function handleOrderPaid(order: any): Promise<{ folderPath: string;
   }
 
   try {
-    const files = await uploadPDFsToDropbox(folderPath, pdfs);
-    return { folderPath, files };
+  const files = await uploadPDFsToDropbox(folderPath, pdfs);
+  return { folderPath, files };
   } catch (e: any) {
     // Surface Dropbox errors with more context
     const message = e?.error?.error_summary || e?.message || 'Dropbox upload failed';
