@@ -208,13 +208,24 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       // Calculate final visible height
       const finalVisibleHeight = finalSize * CALIBRATED_RATIO;
       
-      // For single-line uppercase Impact text, use font size directly for vertical positioning
-      // Cap height is roughly the visible letter height, which is finalSize × CALIBRATED_RATIO
-      const capHeight = finalVisibleHeight;
+      // CRITICAL FIX: doc.text(x, y) uses Y as BASELINE, not top of text!
+      // For Impact uppercase, letters sit on baseline with cap height above
+      // To center 54mm visible letters: calculate baseline position correctly
       
-      // Vertical center: place text so cap height is centered in 54mm box
-      const centeredY = textAreaY + (TEXT_HEIGHT_PT - capHeight) / 2;
-      const safeY = Math.max(textAreaY, Math.min(centeredY, textAreaY + TEXT_HEIGHT_PT - capHeight));
+      // For Impact uppercase: cap height is mostly above baseline (~85% above, ~15% below)
+      // We want to center the visible cap height (54mm) in the text area
+      const baselineOffsetRatio = 0.15; // Roughly 15% of font size is below baseline for Impact
+      const capHeightAboveBaseline = finalVisibleHeight * (1 - baselineOffsetRatio);
+      
+      // Calculate baseline Y to center visible letters in 54mm box
+      // Top of visible letters should be centered: textAreaY + (TEXT_HEIGHT_PT - finalVisibleHeight) / 2
+      const topOfVisibleLetters = textAreaY + (TEXT_HEIGHT_PT - finalVisibleHeight) / 2;
+      let baselineY = topOfVisibleLetters + capHeightAboveBaseline;
+      
+      // Safety: ensure baseline allows full visible height within bounds
+      const minBaselineY = textAreaY + finalSize * 0.25; // Safe margin from top
+      const maxBaselineY = textAreaY + TEXT_HEIGHT_PT - (finalSize * baselineOffsetRatio) - 2; // Safe margin from bottom
+      baselineY = Math.max(minBaselineY, Math.min(baselineY, maxBaselineY));
       
       // Horizontal center: use already-measured width (guaranteed to fit in TEXT_WIDTH_PT)
       const textAreaCenterX = textAreaX + TEXT_WIDTH_PT / 2;
@@ -227,9 +238,10 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       const originalAddPage = doc.addPage;
       doc.addPage = function() { return this; };
       
-      // Render text with absolute coordinates - NO width/height/lineBreak parameters
-      // This ensures full text is rendered without any clipping or wrapping
-      doc.text(text, textStartX, safeY);
+      // Render text using BASELINE positioning
+      // textStartX: left edge of text (horizontally centered)
+      // baselineY: baseline Y coordinate (where letters sit, vertically centered)
+      doc.text(text, textStartX, baselineY);
 
       // Restore original function
       doc.addPage = originalAddPage;
