@@ -170,13 +170,11 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       let finalSize = targetSizeFor54mm;
 
       // Check width constraint - if it doesn't fit, scale down proportionally
-      // Add small margin to prevent edge clipping
       doc.fontSize(finalSize);
       const width = getWidth(finalSize);
       if (width > TEXT_WIDTH_PT) {
-        // Scale down to fit width with 2% margin for safety
-        const widthMargin = 0.98;
-        finalSize = (finalSize * TEXT_WIDTH_PT * widthMargin) / width;
+        // Scale down to fit width (this will also reduce height proportionally)
+        finalSize = (finalSize * TEXT_WIDTH_PT) / width;
       }
       
       // Final check: ensure visible height doesn't exceed 54mm
@@ -190,15 +188,28 @@ export async function generateLabelPDF(config: LabelConfig): Promise<Buffer> {
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
       
-      // Calculate vertical position for proper centering
-      // For Impact uppercase single line, use font size as base height
-      // Adjust for proper visual centering (accounting for font metrics)
-      const baseLineHeight = finalSize; // Base height for Impact uppercase
-      const centeredY = textAreaY + Math.max(0, (TEXT_HEIGHT_PT - baseLineHeight) / 2);
+      // Ensure text fits in height - if scaled down for width, recalculate
+      // Visible highly should be ≤ 54mm, so font size × ratio should be ≤ TEXT_HEIGHT_PT
+      const finalVisibleHeight = finalSize * CALIBRATED_RATIO;
+      if (finalVisibleHeight > TEXT_HEIGHT_PT) {
+        // This shouldn't happen, but clamp just in case
+        finalSize = TEXT_HEIGHT_PT / CALIBRATED_RATIO;
+        doc.fontSize(finalSize);
+      }
+      
+      // For single-line uppercase Impact text, use font size directly for vertical positioning
+      // Cap height is roughly the visible letter height, which is finalSize × CALIBRATED_RATIO
+      const capHeight = finalVisibleHeight;
+      
+      // Vertical center: place text so cap height is centered in 54mm box
+      // Use font size as baseline approximation for single-line text
+      const centeredY = textAreaY + (TEXT_HEIGHT_PT - capHeight) / 2;
+      
+      // Ensure Y is within bounds (never negative or too high)
+      const safeY = Math.max(textAreaY, Math.min(centeredY, textAreaY + TEXT_HEIGHT_PT - capHeight));
 
-      // Render text with proper bounds - ensure full visibility
-      // Remove height constraint to prevent clipping, use width only
-      doc.text(text, textAreaX, centeredY, {
+      // Render text - use exact positioning, no height constraint to avoid clipping
+      doc.text(text, textAreaX, safeY, {
         width: TEXT_WIDTH_PT,
         align: 'center',
         lineBreak: false,
