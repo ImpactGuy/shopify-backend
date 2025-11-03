@@ -18,6 +18,7 @@ import PDFDocument from 'pdfkit';
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { Dropbox } from 'dropbox';
+import { getDropboxAccessToken } from './dropbox-auth';
 
 function sanitizePathName(name: string): string {
   // Remove/replace characters that can cause issues in paths
@@ -328,11 +329,19 @@ export async function uploadPDFsToDropbox(
   folderPath: string,
   pdfs: Array<{ filename: string; buffer: Buffer }>
 ): Promise<string[]> {
-  const accessToken = process.env.DROPBOX_ACCESS_TOKEN;
-  if (!accessToken) throw new Error('DROPBOX_ACCESS_TOKEN not set');
+  // Get access token - automatically refreshes if using OAuth with refresh token
+  const accessToken = await getDropboxAccessToken();
+  
   const fetchImpl = (global as any).fetch || (globalThis as any).fetch;
   if (!fetchImpl) throw new Error('Global fetch not available. Use Node 18+ or provide a fetch polyfill.');
-  const dbx = new Dropbox({ accessToken, fetch: fetchImpl });
+  
+  // For team folders, add pathRoot if needed
+  const pathRoot = process.env.DROPBOX_PATH_ROOT; // e.g., "ns:1234567890"
+  const dbx = new Dropbox({ 
+    accessToken, 
+    fetch: fetchImpl,
+    ...(pathRoot && { pathRoot })
+  });
 
   try { await dbx.filesCreateFolderV2({ path: folderPath, autorename: false }); } catch (e) {
     // Ignore if folder exists; log other errors
