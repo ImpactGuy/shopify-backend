@@ -5,7 +5,7 @@
 
 const APP_KEY = '48vtrhbnil7frx9';
 const APP_SECRET = '2dabbgbr0x5f6q7';
-const AUTH_CODE = 'RLeYu0kLQ6QAAAAAAAWWpNdAitTKtNjEAEd_DCZ_5m8'; // Replace if you get a new one
+const AUTH_CODE = 'PASTE_NEW_CODE_HERE'; // Replace with fresh code from authorization URL
 
 async function exchangeCode() {
   console.log('\n🔄 Exchanging authorization code for tokens...\n');

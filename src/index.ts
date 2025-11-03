@@ -4,7 +4,7 @@
  * This function is triggered when an order is created via webhook.
  * It:
  * 1. Extracts label configurations from order line items (custom attributes)
- * 2. Generates PDFs (270mm × 66mm) for each label configuration
+ * 2. Generates PDFs (270mm × 60mm total: 260mm text + 10mm order ID) for each label configuration
  * 3. Stores PDFs in Shopify Files API
  * 4. Forwards PDFs to production system
  * 
@@ -30,10 +30,10 @@ function sanitizePathName(name: string): string {
 }
 
 // PDF Dimensions (in millimeters)
-const PDF_WIDTH_MM = 280; // Increased by 10mm for order number area
-const PDF_HEIGHT_MM = 66;
+const PDF_WIDTH_MM = 270; // Total width: 260mm text + 10mm order ID
+const PDF_HEIGHT_MM = 60; // Changed from 66mm to 60mm
 const ORDER_NUMBER_WIDTH_MM = 10; // Left side area for order number
-const TEXT_MAX_WIDTH_MM = 260;
+const TEXT_MAX_WIDTH_MM = 260; // Main text area
 const TEXT_MAX_HEIGHT_MM = 54;
 
 // Convert mm to points (1mm = 2.834645669 points)
@@ -120,13 +120,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Draw vertical border between order number and text area
-      const borderX = ORDER_NUMBER_WIDTH_PT;
-      doc.moveTo(borderX, 0)
-         .lineTo(borderX, PDF_HEIGHT_PT)
-         .lineWidth(1)
-         .strokeColor('#000000')
-         .stroke();
+      // Separator line removed - no visible line between order ID and text area
 
       // Order number area: left side, 10mm wide
       const orderNumToUse = orderNumber || config.orderNumber || '';
@@ -343,12 +337,12 @@ export async function uploadPDFsToDropbox(
     ...(pathRoot && { pathRoot })
   });
 
-  try { await dbx.filesCreateFolderV2({ path: folderPath, autorename: false }); } catch (e) {
-    // Ignore if folder exists; log other errors
-    const err: any = e;
-    if (!(err?.error?.error_summary || '').includes('path/conflict/folder/')) {
-      console.warn('Dropbox create folder warning:', err?.error?.error_summary || err?.message || err);
-    }
+  // Try to create folder structure, but ignore errors (assume folders exist)
+  try { 
+    await dbx.filesCreateFolderV2({ path: folderPath, autorename: false }); 
+  } catch (e) {
+    // Silently ignore - folder might already exist or we'll create it on upload
+    // This prevents 400 errors from stopping the upload
   }
 
   const uploaded: string[] = [];
