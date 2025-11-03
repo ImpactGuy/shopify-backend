@@ -17,8 +17,10 @@ async function testUpload() {
   }
 
   console.log('=== Dropbox Upload Test ===\n');
-  console.log('Root Path:', rootPath);
-  console.log('Token:', accessToken.substring(0, 10) + '...\n');
+  console.log('Root Path from .env:', rootPath);
+  console.log('Token:', accessToken.substring(0, 10) + '...');
+  console.log('\n📂 Files will upload to:', rootPath);
+  console.log('🔗 Check here:', `https://www.dropbox.com/home${rootPath}\n`);
 
   const dbx = new Dropbox({ accessToken, fetch });
 
