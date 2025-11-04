@@ -233,12 +233,14 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Impact font: cap height (visual letter height) ≈ 70% of font size
-      // To get 54mm visual letter height: fontSizePt = 54mm / 0.70 = 77.14mm = 218.6pt
-      const IMPACT_CAP_HEIGHT_RATIO = 0.70;
+      // Use actual font metrics to get real cap height (visual letter height)
+      // Start with font size = 1pt and measure the actual cap height ratio
+      doc.fontSize(1);
+      const fontMetrics = (doc as any)._font;
+      const capHeightAt1pt = fontMetrics.capHeight ? (fontMetrics.capHeight / fontMetrics.unitsPerEm) : 0.7;
       
-      // Step 1: Calculate font size for maximum 54mm letter height
-      const fontSizeFor54mmHeight = TEXT_HEIGHT_PT / IMPACT_CAP_HEIGHT_RATIO;
+      // Step 1: Calculate font size needed for 54mm cap height using real font metrics
+      const fontSizeFor54mmHeight = TEXT_HEIGHT_PT / capHeightAt1pt;
       
       // Step 2: Check if text width fits within 250mm at this font size
       doc.fontSize(fontSizeFor54mmHeight);
