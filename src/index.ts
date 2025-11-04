@@ -238,39 +238,45 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
 
       // Special algorithm for short text (less than 6 letters): ALWAYS maintain 54mm height
       if (text.length < 6) {
-        // For short text, calculate font size to achieve EXACTLY 54mm height
-        // Use a capital letter as reference to measure height accurately
-        const TARGET_HEIGHT_PT = TEXT_HEIGHT_PT; // 54mm in points
+        // Step 1: Calculate font size using standard algorithm
+        let tempSize = Math.floor(TEXT_HEIGHT_PT * 1.3);
         
-        // Binary search to find the exact font size for 54mm height
-        let low = 50;
-        let high = 700;
-        let targetSize = 200;
-        
-        for (let i = 0; i < 25; i++) {
-          targetSize = (low + high) / 2;
-          doc.fontSize(targetSize);
-          
-          // Measure using a capital letter from the text (or 'H' as reference)
-          const testChar = text.length > 0 ? text[0] : 'H';
-          const measuredHeight = doc.heightOfString(testChar, { 
-            width: 99999, // No width constraint
-            lineBreak: false 
-          });
-          
-          if (Math.abs(measuredHeight - TARGET_HEIGHT_PT) < 0.1) {
-            break; // Found exact size
-          } else if (measuredHeight < TARGET_HEIGHT_PT) {
-            low = targetSize;
-          } else {
-            high = targetSize;
-          }
+        function getActualHeight(sizePt: number): number {
+          doc.fontSize(sizePt);
+          return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
         }
 
-        // Use this size - it will give exactly 54mm height
-        finalSize = Math.max(20, Math.min(700, targetSize));
+        // Adjust font size to achieve 54mm visible height
+        actualHeight = getActualHeight(tempSize);
+        const tolerance = 0.5;
+        let iterations = 0;
+        while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
+          tempSize = (tempSize * TEXT_HEIGHT_PT) / actualHeight;
+          actualHeight = getActualHeight(tempSize);
+          iterations++;
+        }
+
+        // Check if width fits, if not reduce proportionally
+        doc.fontSize(tempSize);
+        const widthAtSize = doc.widthOfString(text);
+        if (widthAtSize > TEXT_WIDTH_PT) {
+          tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
+          doc.fontSize(tempSize);
+          actualHeight = getActualHeight(tempSize);
+        }
+        
+        // Step 2: Measure current height and scale up to exactly 54mm
+        doc.fontSize(tempSize);
+        const currentHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+        
+        // Scale up to force 54mm height (multiply by 54/current_height_mm)
+        const scaleFactor = TEXT_HEIGHT_PT / currentHeight;
+        finalSize = tempSize * scaleFactor;
+        
+        // Clamp to reasonable bounds
+        finalSize = Math.max(20, Math.min(700, finalSize));
         doc.fontSize(finalSize);
-        actualHeight = doc.heightOfString(text, { width: 99999, lineBreak: false });
+        actualHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
       } 
       // Standard algorithm for longer text (6+ letters): fit both width and height
       else {
