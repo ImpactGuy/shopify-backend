@@ -77,18 +77,24 @@ export function extractLabelConfigs(order: any): LabelConfig[] {
       const key = attr.key || attr.name;
       const value = attr.value;
       switch (key) {
+        // Support both new (with underscore) and old (without underscore) attribute names for backward compatibility
+        case '_label_text':
         case 'label_text':
           config.text = value;
           break;
+        case '_label_font_size_pt':
         case 'label_font_size_pt':
           config.fontSizePt = parseFloat(value) || 156;
           break;
+        case '_label_font_family':
         case 'label_font_family':
           config.fontFamily = value;
           break;
+        case '_label_color':
         case 'label_color':
           config.color = value;
           break;
+        case '_label_config_id':
         case 'label_config_id':
           config.configId = value;
           break;
