@@ -229,65 +229,51 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         fontToUse = fallbackFont;
       }
 
-      // Algorithm to fit text in 250mm width × 50mm height
-      // For 1-22 letters: ALWAYS try to use 50mm height first, scale down ONLY if width > 250mm
+      // Calculate font size to fill 250mm × 54mm text area
+      // PRIORITY: Always use 54mm height for short text, only scale down if width exceeds 250mm
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Target: 50mm actual measured height for capital letters
-      const TARGET_HEIGHT_MM = 50;
-      const TARGET_HEIGHT_PT = TARGET_HEIGHT_MM * MM_TO_PT; // ~141.732 points
+      // Step 1: Find font size that gives exactly 54mm height
+      // Start with a very large font size (much larger than needed)
+      let fontSizeForHeight = TEXT_HEIGHT_PT * 2; // Start at 2x the target height
       
-      // STEP 1: Binary search to find font size that gives EXACTLY 50mm measured height
-      // We measure using a reference capital letter "H" (full height capital)
-      let low = 50;   // Start from reasonable minimum
-      let high = 500; // Start from reasonable maximum
-      let fontSizeForTargetHeight = 200; // Initial guess
-      
-      // Binary search for exact font size (20 iterations = very precise)
-      for (let i = 0; i < 20; i++) {
-        fontSizeForTargetHeight = (low + high) / 2;
-        doc.fontSize(fontSizeForTargetHeight);
+      // Binary search to find exact font size for 54mm height
+      let low = 10;
+      let high = 1000;
+      let iterations = 0;
+      while (iterations < 20 && high - low > 0.1) {
+        fontSizeForHeight = (low + high) / 2;
+        doc.fontSize(fontSizeForHeight);
+        const measuredHeight = doc.heightOfString(text, { width: 9999 }); // No width limit for height calculation
         
-        // Measure height of a single capital letter (we use the actual text, or "H" as reference)
-        const testChar = text.length > 0 ? text[0] : 'H';
-        const measuredHeight = doc.heightOfString(testChar, { 
-          width: 99999, // No width constraint
-          lineBreak: false 
-        });
-        
-        if (measuredHeight < TARGET_HEIGHT_PT) {
-          low = fontSizeForTargetHeight;
-        } else if (measuredHeight > TARGET_HEIGHT_PT) {
-          high = fontSizeForTargetHeight;
+        if (measuredHeight < TEXT_HEIGHT_PT) {
+          low = fontSizeForHeight;
         } else {
-          break; // Exact match
+          high = fontSizeForHeight;
         }
+        iterations++;
       }
 
-      // STEP 2: Check if text fits within 250mm width at this font size
-      doc.fontSize(fontSizeForTargetHeight);
-      const textWidthAtFullHeight = doc.widthOfString(text);
+      // Step 2: Check if this font size fits within 250mm width
+      doc.fontSize(fontSizeForHeight);
+      const widthAtHeightSize = doc.widthOfString(text);
       
       let finalSize;
-      if (textWidthAtFullHeight <= TEXT_WIDTH_PT) {
-        // SUCCESS: Text fits in 250mm width at 50mm height
-        finalSize = fontSizeForTargetHeight;
+      if (widthAtHeightSize <= TEXT_WIDTH_PT) {
+        // Text fits within 250mm width - use full 54mm height!
+        finalSize = fontSizeForHeight;
       } else {
-        // Text too wide: Calculate scaling factor to fit 250mm width
-        const scaleFactor = TEXT_WIDTH_PT / textWidthAtFullHeight;
-        finalSize = fontSizeForTargetHeight * scaleFactor;
+        // Text exceeds 250mm width - scale down to fit width
+        finalSize = fontSizeForHeight * (TEXT_WIDTH_PT / widthAtHeightSize);
       }
       
-      // Apply final font size
-      finalSize = Math.max(20, Math.min(700, finalSize)); // Safety clamp
+      // Clamp to reasonable bounds
+      finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
       
-      // Measure actual height for vertical centering
-      const actualHeight = doc.heightOfString(text, { 
-        width: TEXT_WIDTH_PT, 
-        lineBreak: false 
-      });
+      // Calculate actual height for positioning
+      const actualHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
