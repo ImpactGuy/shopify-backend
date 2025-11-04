@@ -229,47 +229,65 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         fontToUse = fallbackFont;
       }
 
-      // Calculate font size to fill 250mm × 50mm text area (using actual cap height for capital letters)
-      // PRIORITY: Always use 50mm cap height for short text, only scale down if width exceeds 250mm
+      // Algorithm to fit text in 250mm width × 50mm height
+      // For 1-22 letters: ALWAYS try to use 50mm height first, scale down ONLY if width > 250mm
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Target cap height: 50mm for visible capital letters
-      const TARGET_CAP_HEIGHT_MM = 50;
-      const TARGET_CAP_HEIGHT_PT = TARGET_CAP_HEIGHT_MM * MM_TO_PT;
+      // Target: 50mm actual measured height for capital letters
+      const TARGET_HEIGHT_MM = 50;
+      const TARGET_HEIGHT_PT = TARGET_HEIGHT_MM * MM_TO_PT; // ~141.732 points
+      
+      // STEP 1: Binary search to find font size that gives EXACTLY 50mm measured height
+      // We measure using a reference capital letter "H" (full height capital)
+      let low = 50;   // Start from reasonable minimum
+      let high = 500; // Start from reasonable maximum
+      let fontSizeForTargetHeight = 200; // Initial guess
+      
+      // Binary search for exact font size (20 iterations = very precise)
+      for (let i = 0; i < 20; i++) {
+        fontSizeForTargetHeight = (low + high) / 2;
+        doc.fontSize(fontSizeForTargetHeight);
+        
+        // Measure height of a single capital letter (we use the actual text, or "H" as reference)
+        const testChar = text.length > 0 ? text[0] : 'H';
+        const measuredHeight = doc.heightOfString(testChar, { 
+          width: 99999, // No width constraint
+          lineBreak: false 
+        });
+        
+        if (measuredHeight < TARGET_HEIGHT_PT) {
+          low = fontSizeForTargetHeight;
+        } else if (measuredHeight > TARGET_HEIGHT_PT) {
+          high = fontSizeForTargetHeight;
+        } else {
+          break; // Exact match
+        }
+      }
 
-      // Step 1: Get the font's cap height ratio at 1pt to calculate exact font size needed
-      doc.fontSize(1);
-      const fontMetrics = (doc as any)._font;
-      
-      // Cap height is the actual height of capital letters (like 'A', 'B', 'C')
-      // This is what we see visually, not the line height
-      const capHeightRatio = fontMetrics.capHeight 
-        ? (fontMetrics.capHeight / fontMetrics.unitsPerEm) 
-        : 0.7; // Default fallback if font doesn't provide cap height
-      
-      // Calculate font size needed to achieve exactly 50mm cap height
-      const fontSizeFor50mmCapHeight = TARGET_CAP_HEIGHT_PT / capHeightRatio;
-      
-      // Step 2: Check if text width fits within 250mm at this font size
-      doc.fontSize(fontSizeFor50mmCapHeight);
-      const widthAtHeightSize = doc.widthOfString(text);
+      // STEP 2: Check if text fits within 250mm width at this font size
+      doc.fontSize(fontSizeForTargetHeight);
+      const textWidthAtFullHeight = doc.widthOfString(text);
       
       let finalSize;
-      if (widthAtHeightSize <= TEXT_WIDTH_PT) {
-        // Text fits within 250mm width - use full 50mm cap height!
-        finalSize = fontSizeFor50mmCapHeight;
+      if (textWidthAtFullHeight <= TEXT_WIDTH_PT) {
+        // SUCCESS: Text fits in 250mm width at 50mm height
+        finalSize = fontSizeForTargetHeight;
       } else {
-        // Text exceeds 250mm width - scale down to fit width
-        finalSize = fontSizeFor50mmCapHeight * (TEXT_WIDTH_PT / widthAtHeightSize);
+        // Text too wide: Calculate scaling factor to fit 250mm width
+        const scaleFactor = TEXT_WIDTH_PT / textWidthAtFullHeight;
+        finalSize = fontSizeForTargetHeight * scaleFactor;
       }
       
-      // Clamp to reasonable bounds
-      finalSize = Math.max(20, Math.min(700, finalSize));
+      // Apply final font size
+      finalSize = Math.max(20, Math.min(700, finalSize)); // Safety clamp
       doc.fontSize(finalSize);
       
-      // Calculate actual line height for positioning (this is different from cap height)
-      const actualHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+      // Measure actual height for vertical centering
+      const actualHeight = doc.heightOfString(text, { 
+        width: TEXT_WIDTH_PT, 
+        lineBreak: false 
+      });
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
