@@ -30,10 +30,10 @@ function sanitizePathName(name: string): string {
 }
 
 // PDF Dimensions (in millimeters)
-const PDF_WIDTH_MM = 270; // Total width: 260mm text + 10mm order ID
+const PDF_WIDTH_MM = 270; // Total width: 10mm order ID + 5mm padding + 250mm text + 5mm padding
 const PDF_HEIGHT_MM = 60; // Changed from 66mm to 60mm
 const ORDER_NUMBER_WIDTH_MM = 10; // Left side area for order number
-const TEXT_MAX_WIDTH_MM = 260; // Main text area
+const TEXT_MAX_WIDTH_MM = 250; // Main text area (with 5mm padding on left and right)
 const TEXT_MAX_HEIGHT_MM = 54;
 
 // Convert mm to points (1mm = 2.834645669 points)
@@ -199,10 +199,10 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         }
       }
 
-      // Text area: shifted right by 10mm to account for order number area
-      // Text area remains 260×54 mm, but positioned after the order number area
+      // Text area: 250×54 mm with 5mm padding on left and right
+      // Positioned after the 10mm order number area, automatically centered
       const textAreaX = ORDER_NUMBER_WIDTH_PT + ((PDF_WIDTH_PT - ORDER_NUMBER_WIDTH_PT - TEXT_WIDTH_PT) / 2);
-      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 6 mm
+      const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 3mm top padding
 
       // Load Impact font from known locations; fail if not found to avoid silent fallback
       const fallbackFont = 'Helvetica-Bold';
