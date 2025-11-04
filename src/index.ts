@@ -229,43 +229,75 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         fontToUse = fallbackFont;
       }
 
-      // Calculate font size to fill the 260mm × 54mm text area
+      // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Calculate font size to fit within 260mm width and 54mm height
-      // Start with a large size and iterate to find the best fit
-      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
-      
-      function getActualHeight(sizePt: number): number {
-        doc.fontSize(sizePt);
-        return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
-      }
+      let finalSize: number;
+      let actualHeight: number;
 
-      // Adjust font size to achieve 54mm visible height
-      let actualHeight = getActualHeight(finalSize);
-      const tolerance = 0.5;
-      let iterations = 0;
-      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
-        finalSize = (finalSize * TEXT_HEIGHT_PT) / actualHeight;
-        actualHeight = getActualHeight(finalSize);
-        iterations++;
-      }
+      // Special algorithm for short text (less than 6 letters): ALWAYS maintain 54mm height
+      if (text.length < 6) {
+        // For short text, calculate font size to achieve EXACTLY 54mm height
+        // No width constraints - just fill the height
+        let targetSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
+        
+        function getActualHeight(sizePt: number): number {
+          doc.fontSize(sizePt);
+          return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+        }
 
-      // Check if width fits, if not reduce proportionally to fit 260mm width
-      doc.fontSize(finalSize);
-      const widthAtSize = doc.widthOfString(text);
-      if (widthAtSize > TEXT_WIDTH_PT) {
-        // Scale down to fit width (this reduces height too)
-        finalSize = (finalSize * TEXT_WIDTH_PT) / widthAtSize;
+        // Binary search to find font size that gives exactly 54mm visible height
+        actualHeight = getActualHeight(targetSize);
+        const tolerance = 0.5;
+        let iterations = 0;
+        while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 20) {
+          targetSize = (targetSize * TEXT_HEIGHT_PT) / actualHeight;
+          actualHeight = getActualHeight(targetSize);
+          iterations++;
+        }
+
+        // Use this size regardless of width (short text will fit anyway)
+        finalSize = Math.max(20, Math.min(700, targetSize));
         doc.fontSize(finalSize);
         actualHeight = getActualHeight(finalSize);
+      } 
+      // Standard algorithm for longer text (6+ letters): fit both width and height
+      else {
+        // Calculate font size to fit within 250mm width and 54mm height
+        // Start with a large size and iterate to find the best fit
+        let tempSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
+        
+        function getActualHeight(sizePt: number): number {
+          doc.fontSize(sizePt);
+          return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+        }
+
+        // Adjust font size to achieve 54mm visible height
+        actualHeight = getActualHeight(tempSize);
+        const tolerance = 0.5;
+        let iterations = 0;
+        while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
+          tempSize = (tempSize * TEXT_HEIGHT_PT) / actualHeight;
+          actualHeight = getActualHeight(tempSize);
+          iterations++;
+        }
+
+        // Check if width fits, if not reduce proportionally to fit 250mm width
+        doc.fontSize(tempSize);
+        const widthAtSize = doc.widthOfString(text);
+        if (widthAtSize > TEXT_WIDTH_PT) {
+          // Scale down to fit width (this reduces height too)
+          tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
+          doc.fontSize(tempSize);
+          actualHeight = getActualHeight(tempSize);
+        }
+        
+        // Clamp to reasonable bounds
+        finalSize = Math.max(20, Math.min(700, tempSize));
+        doc.fontSize(finalSize);
+        actualHeight = getActualHeight(finalSize); // Update height after clamping
       }
-      
-      // Clamp to reasonable bounds
-      finalSize = Math.max(20, Math.min(700, finalSize));
-      doc.fontSize(finalSize);
-      actualHeight = getActualHeight(finalSize); // Update height after clamping
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
