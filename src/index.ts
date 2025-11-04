@@ -229,39 +229,50 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         fontToUse = fallbackFont;
       }
 
-      // Calculate font size to maximize letter height (54mm) while fitting width (250mm)
+      // Calculate font size to fill 250mm × 54mm text area
+      // PRIORITY: Always use 54mm height for short text, only scale down if width exceeds 250mm
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Use actual font metrics to get real cap height (visual letter height)
-      // Start with font size = 1pt and measure the actual cap height ratio
-      doc.fontSize(1);
-      const fontMetrics = (doc as any)._font;
-      const capHeightAt1pt = fontMetrics.capHeight ? (fontMetrics.capHeight / fontMetrics.unitsPerEm) : 0.7;
+      // Step 1: Find font size that gives exactly 54mm height
+      // Start with a very large font size (much larger than needed)
+      let fontSizeForHeight = TEXT_HEIGHT_PT * 2; // Start at 2x the target height
       
-      // Step 1: Calculate font size needed for 54mm cap height using real font metrics
-      const fontSizeFor54mmHeight = TEXT_HEIGHT_PT / capHeightAt1pt;
-      
-      // Step 2: Check if text width fits within 250mm at this font size
-      doc.fontSize(fontSizeFor54mmHeight);
-      const textWidthAtMaxHeight = doc.widthOfString(text);
+      // Binary search to find exact font size for 54mm height
+      let low = 10;
+      let high = 1000;
+      let iterations = 0;
+      while (iterations < 20 && high - low > 0.1) {
+        fontSizeForHeight = (low + high) / 2;
+        doc.fontSize(fontSizeForHeight);
+        const measuredHeight = doc.heightOfString(text, { width: 9999 }); // No width limit for height calculation
+        
+        if (measuredHeight < TEXT_HEIGHT_PT) {
+          low = fontSizeForHeight;
+        } else {
+          high = fontSizeForHeight;
+        }
+        iterations++;
+      }
+
+      // Step 2: Check if this font size fits within 250mm width
+      doc.fontSize(fontSizeForHeight);
+      const widthAtHeightSize = doc.widthOfString(text);
       
       let finalSize;
-      if (textWidthAtMaxHeight <= TEXT_WIDTH_PT) {
-        // Short text (like "AB"): fits in 250mm width → Use FULL 54mm height!
-        finalSize = fontSizeFor54mmHeight;
+      if (widthAtHeightSize <= TEXT_WIDTH_PT) {
+        // Text fits within 250mm width - use full 54mm height!
+        finalSize = fontSizeForHeight;
       } else {
-        // Long text (like "ASDFASDFWEF"): exceeds 250mm width → Scale down to fit
-        // Calculate reduction factor needed to fit width
-        const widthReductionFactor = TEXT_WIDTH_PT / textWidthAtMaxHeight;
-        finalSize = fontSizeFor54mmHeight * widthReductionFactor;
+        // Text exceeds 250mm width - scale down to fit width
+        finalSize = fontSizeForHeight * (TEXT_WIDTH_PT / widthAtHeightSize);
       }
       
       // Clamp to reasonable bounds
       finalSize = Math.max(20, Math.min(700, finalSize));
       doc.fontSize(finalSize);
       
-      // Calculate actual line height for vertical centering
+      // Calculate actual height for positioning
       const actualHeight = doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
 
       // Vertical center using measured height
