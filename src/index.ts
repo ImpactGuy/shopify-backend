@@ -229,44 +229,35 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         fontToUse = fallbackFont;
       }
 
-      // Use font size calculated by frontend (which maximizes space usage)
-      // Frontend already optimizes: short text = bigger font (up to ~50mm), long text = smaller font
+      // Calculate font size to fill the 260mm × 54mm text area
       const text = (config.text || '').toUpperCase();
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
-      // Start with font size from frontend configuration
-      let finalSize = config.fontSizePt || Math.floor(TEXT_HEIGHT_PT * 1.3);
+      // Calculate font size to fit within 260mm width and 54mm height
+      // Start with a large size and iterate to find the best fit
+      let finalSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
       
       function getActualHeight(sizePt: number): number {
         doc.fontSize(sizePt);
         return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
       }
 
-      function getActualWidth(sizePt: number): number {
-        doc.fontSize(sizePt);
-        return doc.widthOfString(text);
-      }
-
-      // Verify font size fits within constraints, adjust if needed
-      doc.fontSize(finalSize);
-      let actualWidth = getActualWidth(finalSize);
+      // Adjust font size to achieve 54mm visible height
       let actualHeight = getActualHeight(finalSize);
-
-      // Maximum height constraint (50mm = ~141.73 pt)
-      const MAX_HEIGHT_MM = 50;
-      const MAX_HEIGHT_PT = MAX_HEIGHT_MM * MM_TO_PT;
-
-      // If width doesn't fit, reduce font size proportionally
-      if (actualWidth > TEXT_WIDTH_PT) {
-        finalSize = (finalSize * TEXT_WIDTH_PT) / actualWidth;
-        doc.fontSize(finalSize);
-        actualWidth = getActualWidth(finalSize);
+      const tolerance = 0.5;
+      let iterations = 0;
+      while (Math.abs(actualHeight - TEXT_HEIGHT_PT) > tolerance && iterations < 10) {
+        finalSize = (finalSize * TEXT_HEIGHT_PT) / actualHeight;
         actualHeight = getActualHeight(finalSize);
+        iterations++;
       }
 
-      // If height exceeds maximum, reduce font size proportionally
-      if (actualHeight > MAX_HEIGHT_PT) {
-        finalSize = (finalSize * MAX_HEIGHT_PT) / actualHeight;
+      // Check if width fits, if not reduce proportionally to fit 260mm width
+      doc.fontSize(finalSize);
+      const widthAtSize = doc.widthOfString(text);
+      if (widthAtSize > TEXT_WIDTH_PT) {
+        // Scale down to fit width (this reduces height too)
+        finalSize = (finalSize * TEXT_WIDTH_PT) / widthAtSize;
         doc.fontSize(finalSize);
         actualHeight = getActualHeight(finalSize);
       }
