@@ -266,7 +266,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       
       // Special case: if text is less than 6 letters, multiply size by 54/35 to force 54mm height
       if (text.length < 8) {
-        tempSize = tempSize * (54 / 35); // Scale up to 54mm height
+        tempSize = tempSize * (52 / 35); // Scale up to 54mm height
       }
       
       // Clamp to reasonable bounds
