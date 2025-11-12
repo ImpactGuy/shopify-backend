@@ -208,38 +208,30 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       const fallbackFont = 'Helvetica-Bold';
       let fontToUse = 'Impact';
       let impactPath: string | null = null;
-      
+      try {
+        const candidatePaths = [
+          process.env.IMPACT_FONT_PATH,
+          join(process.cwd(), 'fonts', 'Impact.ttf'),
+          join(__dirname, '..', 'fonts', 'Impact.ttf'),
+          '/var/task/fonts/Impact.ttf', // common on Vercel
+        ].filter(Boolean) as string[];
+        for (const p of candidatePaths) {
+          if (existsSync(p)) { impactPath = p; break; }
+        }
+        if (!impactPath) {
+          throw new Error('Impact font not found in expected paths');
+        }
+        // Read font file as buffer and register to ensure proper embedding of ALL glyphs (including numbers, +, -, etc.)
+        const fontBuffer = readFileSync(impactPath);
+        doc.registerFont('Impact', fontBuffer);
+      } catch (e) {
+        // If Impact fails, use Helvetica-Bold but surface in logs
+        console.warn('Impact font load failed:', (e as any)?.message || e);
+        fontToUse = fallbackFont;
+      }
+
       // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
-      
-      // Check if text contains numbers - if so, use Helvetica-Bold as Impact font may not have numeric glyphs
-      const containsNumbers = /\d/.test(text);
-      
-      if (containsNumbers) {
-        console.log('Text contains numbers, using Helvetica-Bold font to ensure proper rendering');
-        fontToUse = fallbackFont;
-      } else {
-        try {
-          const candidatePaths = [
-            process.env.IMPACT_FONT_PATH,
-            join(process.cwd(), 'fonts', 'Impact.ttf'),
-            join(__dirname, '..', 'fonts', 'Impact.ttf'),
-            '/var/task/fonts/Impact.ttf', // common on Vercel
-          ].filter(Boolean) as string[];
-          for (const p of candidatePaths) {
-            if (existsSync(p)) { impactPath = p; break; }
-          }
-          if (!impactPath) {
-            throw new Error('Impact font not found in expected paths');
-          }
-          // Register by file path to ensure embedding
-          doc.registerFont('Impact', impactPath);
-        } catch (e) {
-          // If Impact fails, use Helvetica-Bold but surface in logs
-          console.warn('Impact font load failed:', (e as any)?.message || e);
-          fontToUse = fallbackFont;
-        }
-      }
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
       let finalSize: number;
@@ -273,9 +265,9 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         actualHeight = getActualHeight(tempSize);
       }
       
-      // Special case: if text is less than 6 letters, multiply size by 54/35 to force 54mm height
+      // Special case: if text is less than 8 characters, scale up to better fill the height
       if (text.length < 8) {
-        tempSize = tempSize * (52 / 35); // Scale up to 54mm height
+        tempSize = tempSize * (52 / 35); // Scale up to 54mm height for Impact
       }
       
       // Clamp to reasonable bounds
@@ -455,7 +447,7 @@ if (require.main === module) {
   (async () => {
     try {
       const sampleConfig: LabelConfig = {
-        text: 'Sample Label',
+        text: 'ABC123 +TEST-',
         fontSizePt: 156,
         fontFamily:'Impact',
         color: '#000000',
