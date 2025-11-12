@@ -257,7 +257,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
 
       // Check if width fits, if not reduce proportionally to fit 250mm width
       doc.fontSize(tempSize);
-      const widthAtSize = doc.widthOfString(text);
+      let widthAtSize = doc.widthOfString(text);
       if (widthAtSize > TEXT_WIDTH_PT) {
         // Scale down to fit width (this reduces height too)
         tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
@@ -269,6 +269,15 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       const nonSpaceLength = text.replace(/\s/g, '').length; // Count only non-space characters
       if (nonSpaceLength < 8) {
         tempSize = tempSize * (52 / 35); // Scale up to 54mm height for Impact
+        
+        // Re-check width after scaling up - ensure numbers don't get clipped!
+        doc.fontSize(tempSize);
+        widthAtSize = doc.widthOfString(text);
+        if (widthAtSize > TEXT_WIDTH_PT) {
+          // Scale back down to fit width if needed
+          tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
+          doc.fontSize(tempSize);
+        }
       }
       
       // Clamp to reasonable bounds
@@ -448,7 +457,7 @@ if (require.main === module) {
   (async () => {
     try {
       const sampleConfig: LabelConfig = {
-        text: 'ABC123 +TEST-',
+        text: 'WEHRGASSE 24',
         fontSizePt: 156,
         fontFamily:'Impact',
         color: '#000000',
