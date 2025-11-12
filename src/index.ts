@@ -265,8 +265,9 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         actualHeight = getActualHeight(tempSize);
       }
       
-      // Special case: if text is less than 8 characters, scale up to better fill the height
-      if (text.length < 8) {
+      // Special case: if text is less than 8 non-space characters, scale up to better fill the height
+      const nonSpaceLength = text.replace(/\s/g, '').length; // Count only non-space characters
+      if (nonSpaceLength < 8) {
         tempSize = tempSize * (52 / 35); // Scale up to 54mm height for Impact
       }
       
