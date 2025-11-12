@@ -239,12 +239,15 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       let finalSize: number;
       let actualHeight: number;
 
+      // Use 98% of width as safety margin throughout ALL calculations to prevent clipping
+      const SAFE_TEXT_WIDTH_PT = TEXT_WIDTH_PT * 0.98;
+      
       // Calculate font size using standard algorithm first
       let tempSize = Math.floor(TEXT_HEIGHT_PT * 1.3); // Start larger for Impact metrics
       
       function getActualHeight(sizePt: number): number {
         doc.fontSize(sizePt);
-        return doc.heightOfString(text, { width: TEXT_WIDTH_PT, lineBreak: false });
+        return doc.heightOfString(text, { width: SAFE_TEXT_WIDTH_PT, lineBreak: false });
       }
 
       // Adjust font size to achieve 54mm visible height
@@ -257,28 +260,32 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         iterations++;
       }
 
-      // Check if width fits, if not reduce proportionally to fit 250mm width
+      // Check if width fits with safety margin
       doc.fontSize(tempSize);
       let widthAtSize = doc.widthOfString(text);
-      if (widthAtSize > TEXT_WIDTH_PT) {
-        // Scale down to fit width (this reduces height too)
-        tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
+      console.log(`After height adjustment: size=${tempSize}pt, width=${widthAtSize}pt, safe max=${SAFE_TEXT_WIDTH_PT}pt`);
+      if (widthAtSize > SAFE_TEXT_WIDTH_PT) {
+        // Scale down to fit safe width (this reduces height too)
+        tempSize = (tempSize * SAFE_TEXT_WIDTH_PT) / widthAtSize;
         doc.fontSize(tempSize);
         actualHeight = getActualHeight(tempSize);
+        console.log(`Scaled down to fit width: size=${tempSize}pt`);
       }
       
       // Special case: if text is less than 8 non-space characters, scale up to better fill the height
       const nonSpaceLength = text.replace(/\s/g, '').length; // Count only non-space characters
       if (nonSpaceLength < 8) {
         tempSize = tempSize * (52 / 35); // Scale up to 54mm height for Impact
+        console.log(`Short text scale-up: size=${tempSize}pt`);
         
-        // Re-check width after scaling up - ensure numbers don't get clipped!
+        // Re-check width after scaling up - ensure nothing gets clipped!
         doc.fontSize(tempSize);
         widthAtSize = doc.widthOfString(text);
-        if (widthAtSize > TEXT_WIDTH_PT) {
-          // Scale back down to fit width if needed
-          tempSize = (tempSize * TEXT_WIDTH_PT) / widthAtSize;
+        if (widthAtSize > SAFE_TEXT_WIDTH_PT) {
+          // Scale back down to fit safe width if needed
+          tempSize = (tempSize * SAFE_TEXT_WIDTH_PT) / widthAtSize;
           doc.fontSize(tempSize);
+          console.log(`Re-scaled down after scale-up: size=${tempSize}pt, width=${doc.widthOfString(text)}pt`);
         }
       }
       
@@ -287,30 +294,27 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       doc.fontSize(finalSize);
       actualHeight = getActualHeight(finalSize); // Update height after clamping
       
-      // FINAL width check after all adjustments to ensure text is not clipped
-      doc.fontSize(finalSize);
+      // FINAL width verification
       const finalWidth = doc.widthOfString(text);
-      console.log(`Final size: ${finalSize}pt, Final width: ${finalWidth}pt, Max width: ${TEXT_WIDTH_PT}pt`);
-      if (finalWidth > TEXT_WIDTH_PT) {
-        // If still too wide, scale down one more time to guarantee fit
-        console.log(`Text too wide! Scaling down from ${finalSize}pt`);
-        finalSize = (finalSize * TEXT_WIDTH_PT) / finalWidth;
+      console.log(`FINAL: size=${finalSize}pt, width=${finalWidth}pt, safe max=${SAFE_TEXT_WIDTH_PT}pt`);
+      if (finalWidth > SAFE_TEXT_WIDTH_PT) {
+        // If STILL too wide after everything, scale down one more time
+        console.error(`WARNING: Text still too wide! Forcing scale down.`);
+        finalSize = (finalSize * SAFE_TEXT_WIDTH_PT) / finalWidth;
         doc.fontSize(finalSize);
         actualHeight = getActualHeight(finalSize);
-        console.log(`New final size: ${finalSize}pt`);
+        console.log(`Emergency scale-down: size=${finalSize}pt, width=${doc.widthOfString(text)}pt`);
       }
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
-      // Render text with proper options to prevent clipping
-      // Since we've already scaled the font to fit, we can safely use the full text area width
-      // Remove width constraint to prevent PDFKit from clipping text at spaces
+      // Render text WITHOUT width constraint to prevent clipping
+      // We've already scaled the text to fit, so let PDFKit render it naturally
       doc.text(text, textAreaX, centeredY, {
-        width: TEXT_WIDTH_PT * 1.1, // Add 10% buffer to prevent any edge clipping
         align: 'center',
-        lineBreak: false, // Don't break lines
-        continued: false, // Don't continue to next page
+        lineBreak: false,
+        continued: false,
       });
 
       doc.end();
