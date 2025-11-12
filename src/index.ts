@@ -224,14 +224,16 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         // Read font file as buffer and register to ensure proper embedding of ALL glyphs (including numbers, +, -, etc.)
         const fontBuffer = readFileSync(impactPath);
         doc.registerFont('Impact', fontBuffer);
+        console.log(`Impact font loaded successfully from: ${impactPath}`);
       } catch (e) {
         // If Impact fails, use Helvetica-Bold but surface in logs
-        console.warn('Impact font load failed:', (e as any)?.message || e);
+        console.error('Impact font load failed:', (e as any)?.message || e);
         fontToUse = fallbackFont;
       }
 
       // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
+      console.log(`Generating PDF for text: "${text}" (length: ${text.length}, non-space: ${text.replace(/\s/g, '').length})`);
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
       let finalSize: number;
@@ -284,15 +286,31 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       finalSize = Math.max(20, Math.min(700, tempSize));
       doc.fontSize(finalSize);
       actualHeight = getActualHeight(finalSize); // Update height after clamping
+      
+      // FINAL width check after all adjustments to ensure text is not clipped
+      doc.fontSize(finalSize);
+      const finalWidth = doc.widthOfString(text);
+      console.log(`Final size: ${finalSize}pt, Final width: ${finalWidth}pt, Max width: ${TEXT_WIDTH_PT}pt`);
+      if (finalWidth > TEXT_WIDTH_PT) {
+        // If still too wide, scale down one more time to guarantee fit
+        console.log(`Text too wide! Scaling down from ${finalSize}pt`);
+        finalSize = (finalSize * TEXT_WIDTH_PT) / finalWidth;
+        doc.fontSize(finalSize);
+        actualHeight = getActualHeight(finalSize);
+        console.log(`New final size: ${finalSize}pt`);
+      }
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
+      // Render text with proper options to prevent clipping
+      // Since we've already scaled the font to fit, we can safely use the full text area width
+      // Remove width constraint to prevent PDFKit from clipping text at spaces
       doc.text(text, textAreaX, centeredY, {
-        width: TEXT_WIDTH_PT,
-        height: TEXT_HEIGHT_PT,
+        width: TEXT_WIDTH_PT * 1.1, // Add 10% buffer to prevent any edge clipping
         align: 'center',
-        lineBreak: false,
+        lineBreak: false, // Don't break lines
+        continued: false, // Don't continue to next page
       });
 
       doc.end();
