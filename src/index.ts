@@ -208,29 +208,38 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       const fallbackFont = 'Helvetica-Bold';
       let fontToUse = 'Impact';
       let impactPath: string | null = null;
-      try {
-        const candidatePaths = [
-          process.env.IMPACT_FONT_PATH,
-          join(process.cwd(), 'fonts', 'Impact.ttf'),
-          join(__dirname, '..', 'fonts', 'Impact.ttf'),
-          '/var/task/fonts/Impact.ttf', // common on Vercel
-        ].filter(Boolean) as string[];
-        for (const p of candidatePaths) {
-          if (existsSync(p)) { impactPath = p; break; }
-        }
-        if (!impactPath) {
-          throw new Error('Impact font not found in expected paths');
-        }
-        // Register by file path to ensure embedding
-        doc.registerFont('Impact', impactPath);
-      } catch (e) {
-        // If Impact fails, use Helvetica-Bold but surface in logs
-        console.warn('Impact font load failed:', (e as any)?.message || e);
-        fontToUse = fallbackFont;
-      }
-
+      
       // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
+      
+      // Check if text contains numbers - if so, use Helvetica-Bold as Impact font may not have numeric glyphs
+      const containsNumbers = /\d/.test(text);
+      
+      if (containsNumbers) {
+        console.log('Text contains numbers, using Helvetica-Bold font to ensure proper rendering');
+        fontToUse = fallbackFont;
+      } else {
+        try {
+          const candidatePaths = [
+            process.env.IMPACT_FONT_PATH,
+            join(process.cwd(), 'fonts', 'Impact.ttf'),
+            join(__dirname, '..', 'fonts', 'Impact.ttf'),
+            '/var/task/fonts/Impact.ttf', // common on Vercel
+          ].filter(Boolean) as string[];
+          for (const p of candidatePaths) {
+            if (existsSync(p)) { impactPath = p; break; }
+          }
+          if (!impactPath) {
+            throw new Error('Impact font not found in expected paths');
+          }
+          // Register by file path to ensure embedding
+          doc.registerFont('Impact', impactPath);
+        } catch (e) {
+          // If Impact fails, use Helvetica-Bold but surface in logs
+          console.warn('Impact font load failed:', (e as any)?.message || e);
+          fontToUse = fallbackFont;
+        }
+      }
       doc.font(fontToUse).fillColor(config.color || '#000000');
 
       let finalSize: number;
