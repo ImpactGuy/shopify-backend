@@ -295,7 +295,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       actualHeight = getActualHeight(finalSize); // Update height after clamping
       
       // FINAL width verification
-      const finalWidth = doc.widthOfString(text);
+      let finalWidth = doc.widthOfString(text);
       console.log(`FINAL: size=${finalSize}pt, width=${finalWidth}pt, safe max=${SAFE_TEXT_WIDTH_PT}pt`);
       if (finalWidth > SAFE_TEXT_WIDTH_PT) {
         // If STILL too wide after everything, scale down one more time
@@ -303,20 +303,34 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
         finalSize = (finalSize * SAFE_TEXT_WIDTH_PT) / finalWidth;
         doc.fontSize(finalSize);
         actualHeight = getActualHeight(finalSize);
-        console.log(`Emergency scale-down: size=${finalSize}pt, width=${doc.widthOfString(text)}pt`);
+        // Recalculate width after scale-down
+        finalWidth = doc.widthOfString(text);
+        console.log(`Emergency scale-down: size=${finalSize}pt, width=${finalWidth}pt`);
       }
 
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
-      // Render text centered within the text area
-      // Width parameter is required for align: 'center' to work properly in PDFKit
-      doc.text(text, textAreaX, centeredY, {
-        width: TEXT_WIDTH_PT,
-        align: 'center',
-        lineBreak: false,
-        continued: false,
-      });
+      // Render text
+      // For short text (< 8 chars), manually center by calculating exact text width and position
+      // For longer text, use align: 'center' which works correctly
+      if (nonSpaceLength < 8) {
+        // Manually center short text: calculate center of text area and offset by half text width
+        const textAreaCenterX = textAreaX + (TEXT_WIDTH_PT / 2);
+        const centeredX = textAreaCenterX - (finalWidth / 2);
+        // Render short text at calculated centered position (no align parameter needed)
+        doc.text(text, centeredX, centeredY, {
+          lineBreak: false,
+          continued: false,
+        });
+      } else {
+        // For longer text, use align: 'center' (works correctly without width parameter)
+        doc.text(text, textAreaX, centeredY, {
+          align: 'center',
+          lineBreak: false,
+          continued: false,
+        });
+      }
 
       doc.end();
     } catch (error) {
