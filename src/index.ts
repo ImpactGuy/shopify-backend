@@ -29,6 +29,54 @@ function sanitizePathName(name: string): string {
     .trim();
 }
 
+/**
+ * Convert hex color to CMYK color space
+ * Returns array [C, M, Y, K] where each value is 0-1
+ * Supports both 3-character (#RGB) and 6-character (#RRGGBB) hex codes
+ */
+function hexToCmyk(hex: string): [number, number, number, number] {
+  // Remove # if present and normalize to uppercase
+  hex = hex.replace('#', '').toUpperCase();
+  
+  // Handle 3-character hex codes (e.g., #000 -> #000000)
+  if (hex.length === 3) {
+    hex = hex.split('').map(char => char + char).join('');
+  }
+  
+  // Validate hex code length
+  if (hex.length !== 6) {
+    console.warn(`Invalid hex color: ${hex}, defaulting to black`);
+    return [0, 0, 0, 1]; // Default to black if invalid
+  }
+  
+  // Parse RGB values (0-255)
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  
+  // Convert RGB to CMYK
+  // K (black) is the minimum of (1-R, 1-G, 1-B)
+  const k = 1 - Math.max(r, g, b);
+  
+  if (k === 1) {
+    // Pure black
+    return [0, 0, 0, 1];
+  }
+  
+  // Calculate C, M, Y values
+  const c = (1 - r - k) / (1 - k);
+  const m = (1 - g - k) / (1 - k);
+  const y = (1 - b - k) / (1 - k);
+  
+  // Ensure values are in valid range [0, 1]
+  return [
+    Math.max(0, Math.min(1, c)),
+    Math.max(0, Math.min(1, m)),
+    Math.max(0, Math.min(1, y)),
+    Math.max(0, Math.min(1, k))
+  ];
+}
+
 // PDF Dimensions (in millimeters)
 const PDF_WIDTH_MM = 270; // Total width: 10mm order ID + 5mm padding + 250mm text + 5mm padding
 const PDF_HEIGHT_MM = 60; // Changed from 66mm to 60mm
@@ -137,7 +185,8 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           // Draw order number vertically, rotated 90 degrees counterclockwise
           // Numbers should be aligned from bottom to top, rotated to the left
           const orderNumFontSize = 12; // Slightly larger font size in points for order number
-          doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor('#000000');
+          // Use CMYK color space: black = [0, 0, 0, 1]
+          doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor(hexToCmyk('#000000'));
           
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
@@ -183,7 +232,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
                .rotate(-90, { origin: [0, 0] }) // Rotate -90 degrees counterclockwise (point left)
                .font('Helvetica-Bold')
                .fontSize(orderNumFontSize)
-               .fillColor('#000000');
+               .fillColor(hexToCmyk('#000000'));
                
             // Calculate actual text dimensions for proper centering
             const textWidth = doc.widthOfString(digit);
@@ -234,7 +283,9 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
       console.log(`Generating PDF for text: "${text}" (length: ${text.length}, non-space: ${text.replace(/\s/g, '').length})`);
-      doc.font(fontToUse).fillColor(config.color || '#000000');
+      // Convert color to CMYK color space
+      const textColor = config.color || '#000000';
+      doc.font(fontToUse).fillColor(hexToCmyk(textColor));
 
       let finalSize: number;
       let actualHeight: number;
