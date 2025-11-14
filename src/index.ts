@@ -309,13 +309,21 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
-      // Render text WITHOUT width constraint to prevent clipping
-      // We've already scaled the text to fit, so let PDFKit render it naturally
-      doc.text(text, textAreaX, centeredY, {
+      // Render text
+      // For short text (< 8 characters), explicitly provide width parameter to ensure proper centering
+      // For longer text, the existing code works fine without width constraint
+      const textOptions: any = {
         align: 'center',
         lineBreak: false,
         continued: false,
-      });
+      };
+      
+      // Only add width parameter for short text to fix left-alignment issue
+      if (nonSpaceLength < 8) {
+        textOptions.width = TEXT_WIDTH_PT;
+      }
+      
+      doc.text(text, textAreaX, centeredY, textOptions);
 
       doc.end();
     } catch (error) {
