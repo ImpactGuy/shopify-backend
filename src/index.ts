@@ -201,7 +201,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
 
       // Text area: 250×54 mm with 5mm padding on left and right
       // Positioned after the 10mm order number area, automatically centered
-      const textAreaX = ORDER_NUMBER_WIDTH_PT + ((PDF_WIDTH_PT - ORDER_NUMBER_WIDTH_PT - TEXT_WIDTH_PT) / 2);
+      const textAreaLeftX = ORDER_NUMBER_WIDTH_PT + ((PDF_WIDTH_PT - ORDER_NUMBER_WIDTH_PT - TEXT_WIDTH_PT) / 2);
       const textAreaY = (PDF_HEIGHT_PT - TEXT_HEIGHT_PT) / 2; // 3mm top padding
 
       // Load Impact font from known locations; fail if not found to avoid silent fallback
@@ -309,9 +309,10 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
-      // Render text WITHOUT width constraint to prevent clipping
-      // We've already scaled the text to fit, so let PDFKit render it naturally
-      doc.text(text, textAreaX, centeredY, {
+      // Render text centered within the text area
+      // Provide width parameter so PDFKit properly centers the text within the text area width
+      doc.text(text, textAreaLeftX, centeredY, {
+        width: TEXT_WIDTH_PT,
         align: 'center',
         lineBreak: false,
         continued: false,
