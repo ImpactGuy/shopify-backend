@@ -309,9 +309,10 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       // Vertical center using measured height
       const centeredY = textAreaY + (TEXT_HEIGHT_PT - actualHeight) / 2;
 
-      // Render text WITHOUT width constraint to prevent clipping
-      // We've already scaled the text to fit, so let PDFKit render it naturally
+      // Render text centered within the text area
+      // Width parameter is required for align: 'center' to work properly in PDFKit
       doc.text(text, textAreaX, centeredY, {
+        width: TEXT_WIDTH_PT,
         align: 'center',
         lineBreak: false,
         continued: false,
