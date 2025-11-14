@@ -311,12 +311,11 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
 
       // Render text WITHOUT width constraint to prevent clipping
       // We've already scaled the text to fit, so let PDFKit render it naturally
-      // For short text (< 8 chars), add width parameter to ensure proper centering
-      const textOptions: any = { align: 'center', lineBreak: false, continued: false };
-      if (nonSpaceLength < 8) {
-        textOptions.width = TEXT_WIDTH_PT;
-      }
-      doc.text(text, textAreaX, centeredY, textOptions);
+      doc.text(text, textAreaX, centeredY, {
+        align: 'center',
+        lineBreak: false,
+        continued: false,
+      });
 
       doc.end();
     } catch (error) {
