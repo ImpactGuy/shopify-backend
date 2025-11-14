@@ -185,8 +185,9 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
           // Draw order number vertically, rotated 90 degrees counterclockwise
           // Numbers should be aligned from bottom to top, rotated to the left
           const orderNumFontSize = 12; // Slightly larger font size in points for order number
-          // Use CMYK color space: black = [0, 0, 0, 1]
-          doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor(hexToCmyk('#000000'));
+          // Use pure black in CMYK: [0, 0, 0, 1] = 0% C, 0% M, 0% Y, 100% K
+          const blackCmyk = [0, 0, 0, 1];
+          doc.font('Helvetica-Bold').fontSize(orderNumFontSize).fillColor(blackCmyk as any);
           
           // Center the order number area horizontally (within the 10mm width)
           const orderNumCenterX = ORDER_NUMBER_WIDTH_PT / 2;
@@ -232,7 +233,7 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
                .rotate(-90, { origin: [0, 0] }) // Rotate -90 degrees counterclockwise (point left)
                .font('Helvetica-Bold')
                .fontSize(orderNumFontSize)
-               .fillColor(hexToCmyk('#000000'));
+               .fillColor([0, 0, 0, 1] as any); // Pure black CMYK
                
             // Calculate actual text dimensions for proper centering
             const textWidth = doc.widthOfString(digit);
@@ -283,9 +284,10 @@ export async function generateLabelPDF(config: LabelConfig, orderNumber?: string
       // Calculate font size to fill the text area
       const text = (config.text || '').toUpperCase();
       console.log(`Generating PDF for text: "${text}" (length: ${text.length}, non-space: ${text.replace(/\s/g, '').length})`);
-      // Convert color to CMYK color space
-      const textColor = config.color || '#000000';
-      doc.font(fontToUse).fillColor(hexToCmyk(textColor));
+      // Always use pure black in CMYK: [0, 0, 0, 1] = 0% C, 0% M, 0% Y, 100% K
+      const blackCmyk = [0, 0, 0, 1];
+      console.log(`Using CMYK black: [${blackCmyk.join(', ')}]`);
+      doc.font(fontToUse).fillColor(blackCmyk as any);
 
       let finalSize: number;
       let actualHeight: number;
